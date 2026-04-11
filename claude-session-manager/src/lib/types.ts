@@ -75,6 +75,33 @@ export interface TerminalConfig {
   defaultTerminal: string;
 }
 
+export interface LiveSession {
+  pid: number;
+  sessionId: string;
+  cwd: string;
+  startedAt: number;
+  kind: string;
+  entrypoint: string;
+  isAlive: boolean;
+  endedAt: number | null;
+  dbSessionId: number | null;
+  slug: string | null;
+  projectName: string | null;
+  gitBranch: string | null;
+  messageCount: number | null;
+  totalInputTokens: number | null;
+  totalOutputTokens: number | null;
+  totalCacheCreationTokens: number | null;
+  totalCacheReadTokens: number | null;
+  lastMessagePreview: string | null;
+  activeSubagentCount: number | null;
+}
+
+export interface SessionMessagesUpdate {
+  sessionId: string;
+  newMessages: ParsedMessage[];
+}
+
 export interface ScanResult {
   projectsFound: number;
   sessionsFound: number;
@@ -85,7 +112,7 @@ export interface ScanResult {
 
 // Message types from parser
 export interface ContentBlock {
-  type: "text" | "thinking" | "tool_use" | "tool_result";
+  type: "text" | "thinking" | "tool_use" | "tool_result" | "image";
   // text
   text?: string;
   // thinking
@@ -98,6 +125,12 @@ export interface ContentBlock {
   toolUseId?: string;
   content?: unknown;
   isError?: boolean;
+  // image — field names match Rust snake_case serialization
+  source?: {
+    type: string;
+    media_type?: string;
+    data?: string;
+  };
 }
 
 export interface Usage {

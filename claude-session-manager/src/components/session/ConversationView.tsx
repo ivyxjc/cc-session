@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { getMessages, getSubagents, listSessions } from "../../lib/tauri";
 import type { ParsedMessage, SessionSummary, SubagentSummary } from "../../lib/types";
 import { useAppStore } from "../../stores/appStore";
 import { SessionHeader } from "./SessionHeader";
 import { MessageBubble } from "../message/MessageBubble";
 import { SubagentView } from "../message/SubagentView";
+import { buildToolResultsMap } from "../../lib/toolResults";
 
 export function ConversationView() {
   const { selectedSessionId } = useAppStore();
@@ -14,6 +15,8 @@ export function ConversationView() {
   const [loading, setLoading] = useState(true);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(true);
+
+  const toolResults = useMemo(() => buildToolResultsMap(messages), [messages]);
 
   useEffect(() => {
     if (!selectedSessionId) return;
@@ -52,7 +55,6 @@ export function ConversationView() {
   return (
     <div className="h-full flex flex-col">
       <SessionHeader session={session} onRefresh={() => {
-        // Re-fetch session metadata to reflect tag/backup changes
         listSessions({ projectId: undefined }).then((sessions) => {
           const updated = sessions.find((s) => s.id === selectedSessionId);
           if (updated) setSession(updated);
@@ -60,7 +62,7 @@ export function ConversationView() {
       }} />
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} />
+          <MessageBubble key={i} message={msg} subagents={subagents} toolResults={toolResults} />
         ))}
         {hasMore && (
           <button

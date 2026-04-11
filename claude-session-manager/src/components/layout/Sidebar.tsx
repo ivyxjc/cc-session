@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useFilterStore } from "../../stores/filterStore";
-import { listProjects, listTags } from "../../lib/tauri";
+import { useLiveStore } from "../../stores/liveStore";
+import { listProjects, listTags, getLiveSessions } from "../../lib/tauri";
 import type { Project, Tag } from "../../lib/types";
 
 function longestCommonPrefix(paths: string[]): string {
@@ -27,6 +28,8 @@ interface ProjectGroup {
 export function Sidebar() {
   const { view, setView, selectedProjectId, selectProject, selectedProjectGroup, selectProjectGroup, searchQuery, setSearchQuery } = useAppStore();
   const { selectedTagId, setSelectedTagId } = useFilterStore();
+  const liveSessions = useLiveStore((s) => s.liveSessions);
+  const setLiveSessions = useLiveStore((s) => s.setLiveSessions);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
@@ -34,7 +37,14 @@ export function Sidebar() {
   useEffect(() => {
     listProjects("time").then(setProjects).catch(console.error);
     listTags().then(setTags).catch(console.error);
-  }, []);
+    getLiveSessions().then(setLiveSessions).catch(console.error);
+
+    // Refresh live session count every 10s for the badge
+    const interval = setInterval(() => {
+      getLiveSessions().then(setLiveSessions).catch(console.error);
+    }, 10_000);
+    return () => clearInterval(interval);
+  }, [setLiveSessions]);
 
   // Group projects by displayName
   const projectGroups = useMemo(() => {
@@ -98,6 +108,18 @@ export function Sidebar() {
 
       {/* Navigation */}
       <nav className="p-3 space-y-1">
+        <button
+          onClick={() => { setView("live"); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm flex items-center justify-between ${view === "live" || view === "liveConversation" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          <span>Live</span>
+          {liveSessions.filter((s) => s.isAlive).length > 0 && (
+            <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+              {liveSessions.filter((s) => s.isAlive).length}
+            </span>
+          )}
+        </button>
         <button
           onClick={() => { setView("projects"); selectProject(null); setSearchQuery(""); }}
           className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "projects" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}

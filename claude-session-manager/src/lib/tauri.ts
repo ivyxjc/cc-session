@@ -1,7 +1,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
   Project, SessionSummary, ParsedMessage, SubagentSummary,
-  Tag, Backup, BackupConfig, TerminalConfig, ScanResult,
+  Tag, Backup, BackupConfig, TerminalConfig, ScanResult, LiveSession,
 } from "./types";
 
 // Safe invoke wrapper — returns empty/default when not in Tauri webview (e.g. browser dev)
@@ -95,6 +95,26 @@ export const openTerminal = (path: string, terminalName?: string) =>
 export const testTerminalCommand = (command: string) =>
   invoke<void>("test_terminal_command", { command });
 
+// Images
+export const readImageFile = (path: string) =>
+  invoke<string>("read_image_file", { path });
+
 // Scanning
 export const refreshIndex = () =>
   invoke<ScanResult>("refresh_index");
+
+// Live Monitor
+export const getLiveSessions = () =>
+  invoke<LiveSession[]>("get_live_sessions");
+
+export const startLiveMonitor = () =>
+  invoke<void>("start_live_monitor");
+
+export const stopLiveMonitor = () =>
+  invoke<void>("stop_live_monitor");
+
+export const watchSession = (sessionId: string) =>
+  invoke<void>("watch_session", { sessionId });
+
+export const unwatchSession = (sessionId: string) =>
+  invoke<void>("unwatch_session", { sessionId });

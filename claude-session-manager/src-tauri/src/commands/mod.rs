@@ -5,3 +5,5 @@ pub mod favorites;
 pub mod tags;
 pub mod backups;
 pub mod terminal;
+pub mod monitor;
+pub mod images;

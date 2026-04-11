@@ -1,14 +1,31 @@
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ParsedMessage, ContentBlock } from "../../lib/types";
+import type { ParsedMessage, ContentBlock, SubagentSummary } from "../../lib/types";
+import type { ToolResult } from "../../lib/toolResults";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { DiffView } from "./DiffView";
 import { CodeBlock } from "./CodeBlock";
+import { extractImagePath, ImageFromPath } from "./ImageFromPath";
 
-function renderContentBlock(block: ContentBlock, index: number) {
+function renderContentBlock(
+  block: ContentBlock,
+  index: number,
+  subagents?: SubagentSummary[],
+  toolResults?: Map<string, ToolResult>,
+) {
   switch (block.type) {
-    case "text":
+    case "text": {
+      const text = block.text || "";
+      // Detect [Image: source: /path] or [Image source: /path] patterns
+      const imagePath = extractImagePath(text);
+      if (imagePath) {
+        return (
+          <div key={index} className="my-1">
+            <ImageFromPath path={imagePath} />
+          </div>
+        );
+      }
       return (
         <div key={index} className="prose dark:prose-invert prose-sm max-w-none">
           <ReactMarkdown
@@ -24,13 +41,31 @@ function renderContentBlock(block: ContentBlock, index: number) {
               },
             }}
           >
-            {block.text || ""}
+            {text}
           </ReactMarkdown>
         </div>
       );
+    }
 
     case "thinking":
       return <ThinkingBlock key={index} thinking={block.thinking || ""} />;
+
+    case "image": {
+      const src = block.source;
+      if (src?.type === "base64" && src.data && src.media_type) {
+        return (
+          <div key={index} className="my-1">
+            <img
+              src={`data:${src.media_type};base64,${src.data}`}
+              alt="User image"
+              className="max-w-full max-h-96 rounded border border-zinc-200 dark:border-zinc-700"
+              loading="lazy"
+            />
+          </div>
+        );
+      }
+      return null;
+    }
 
     case "tool_use": {
       // Special case: Edit tool -- show diff
@@ -47,7 +82,8 @@ function renderContentBlock(block: ContentBlock, index: number) {
           );
         }
       }
-      return <ToolCallBlock key={index} block={block} />;
+      const result = block.id ? toolResults?.get(block.id) : undefined;
+      return <ToolCallBlock key={index} block={block} subagents={subagents} toolResult={result} />;
     }
 
     default:
@@ -55,7 +91,13 @@ function renderContentBlock(block: ContentBlock, index: number) {
   }
 }
 
-export function MessageBubble({ message }: { message: ParsedMessage }) {
+interface Props {
+  message: ParsedMessage;
+  subagents?: SubagentSummary[];
+  toolResults?: Map<string, ToolResult>;
+}
+
+export function MessageBubble({ message, subagents, toolResults }: Props) {
   if (message.type === "permissionMode" || message.type === "fileHistorySnapshot" || message.type === "attachment") {
     return null;
   }
@@ -71,6 +113,11 @@ export function MessageBubble({ message }: { message: ParsedMessage }) {
 
   const isUser = message.type === "user";
 
+  // Skip user messages that only contain tool_result blocks (automatic tool responses, not real user input)
+  if (isUser && message.content.length > 0 && message.content.every((b) => b.type === "tool_result")) {
+    return null;
+  }
+
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
@@ -83,7 +130,7 @@ export function MessageBubble({ message }: { message: ParsedMessage }) {
         <div className="text-xs font-medium text-zinc-500 mb-1">
           {isUser ? "You" : `Claude${message.type === "assistant" && message.model ? ` (${message.model})` : ""}`}
         </div>
-        {message.content.map((block, i) => renderContentBlock(block, i))}
+        {message.content.map((block, i) => renderContentBlock(block, i, subagents, toolResults))}
       </div>
     </div>
   );

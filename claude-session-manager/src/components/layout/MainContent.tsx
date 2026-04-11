@@ -6,6 +6,8 @@ import { ConversationView } from "../session/ConversationView";
 import { BackupManager } from "../backup/BackupManager";
 import { SearchResults } from "../search/SearchResults";
 import { SettingsPage } from "../settings/SettingsPage";
+import { LiveDashboard } from "../live/LiveDashboard";
+import { LiveConversationView } from "../live/LiveConversationView";
 
 export function MainContent() {
   const { view } = useAppStore();
@@ -27,6 +29,10 @@ export function MainContent() {
       return <SearchResults />;
     case "settings":
       return <SettingsPage />;
+    case "live":
+      return <LiveDashboard />;
+    case "liveConversation":
+      return <LiveConversationView />;
     default:
       return <ProjectList />;
   }

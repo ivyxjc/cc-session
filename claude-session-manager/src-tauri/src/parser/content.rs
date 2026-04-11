@@ -25,6 +25,20 @@ pub enum ContentBlock {
         #[serde(default)]
         is_error: bool,
     },
+    Image {
+        source: ImageSource,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ImageSource {
+    #[serde(rename = "type")]
+    pub source_type: String,
+    #[serde(default)]
+    pub media_type: Option<String>,
+    #[serde(default)]
+    pub data: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
