@@ -41,7 +41,7 @@ pub fn list_sessions(
     let order = match sort_by.as_deref() {
         Some("size") => "s.file_size DESC",
         Some("messages") => "s.message_count DESC",
-        Some("tokens") => "(s.total_input_tokens + s.total_output_tokens) DESC",
+        Some("tokens") => "(s.total_input_tokens + s.total_output_tokens + s.total_cache_creation_tokens + s.total_cache_read_tokens) DESC",
         _ => "s.last_active DESC NULLS LAST",
     };
 
@@ -51,7 +51,9 @@ pub fn list_sessions(
                 s.slug, s.version, s.permission_mode, s.git_branch,
                 s.started_at, s.last_active, s.message_count,
                 s.user_msg_count, s.assistant_msg_count,
-                s.total_input_tokens, s.total_output_tokens, s.file_size,
+                s.total_input_tokens, s.total_output_tokens,
+                s.total_cache_creation_tokens, s.total_cache_read_tokens,
+                s.file_size,
                 CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorited,
                 s.is_backed_up
          FROM sessions s
@@ -67,7 +69,7 @@ pub fn list_sessions(
 
     let session_rows: Vec<(i64, String, i64, String, String, Option<String>, Option<String>,
         Option<String>, Option<String>, Option<i64>, Option<i64>,
-        i64, i64, i64, i64, i64, i64, bool, bool)> = stmt.query_map(
+        i64, i64, i64, i64, i64, i64, i64, i64, bool, bool)> = stmt.query_map(
         params_ref.as_slice(),
         |row| {
             Ok((
@@ -75,7 +77,8 @@ pub fn list_sessions(
                 row.get(4)?, row.get(5)?, row.get(6)?, row.get(7)?,
                 row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?,
                 row.get(12)?, row.get(13)?, row.get(14)?, row.get(15)?,
-                row.get(16)?, row.get(17)?, row.get(18)?,
+                row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?,
+                row.get(20)?,
             ))
         },
     )
@@ -103,9 +106,11 @@ pub fn list_sessions(
             assistant_msg_count: row.13,
             total_input_tokens: row.14,
             total_output_tokens: row.15,
-            file_size: row.16,
-            is_favorited: row.17,
-            is_backed_up: row.18,
+            total_cache_creation_tokens: row.16,
+            total_cache_read_tokens: row.17,
+            file_size: row.18,
+            is_favorited: row.19,
+            is_backed_up: row.20,
             tags,
         });
     }

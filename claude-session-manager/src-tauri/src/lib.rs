@@ -40,6 +40,10 @@ pub fn run() {
             commands::backups::migrate_backups_cmd,
             commands::backups::get_backup_config_cmd,
             commands::backups::set_backup_config_cmd,
+            commands::terminal::get_terminal_config,
+            commands::terminal::set_terminal_config,
+            commands::terminal::open_terminal,
+            commands::terminal::test_terminal_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

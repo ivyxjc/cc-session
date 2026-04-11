@@ -30,6 +30,8 @@ pub struct SessionSummary {
     pub assistant_msg_count: i64,
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
+    pub total_cache_creation_tokens: i64,
+    pub total_cache_read_tokens: i64,
     pub file_size: i64,
     pub is_favorited: bool,
     pub is_backed_up: bool,
@@ -90,6 +92,42 @@ impl Default for BackupConfig {
             auto_backup_interval_hours: 24,
             compress: true,
             max_backup_copies: 3,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalEntry {
+    pub name: String,
+    pub command: String, // use {path} as placeholder
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalConfig {
+    pub terminals: Vec<TerminalEntry>,
+    pub default_terminal: String, // name of the default
+}
+
+impl Default for TerminalConfig {
+    fn default() -> Self {
+        Self {
+            terminals: vec![
+                TerminalEntry {
+                    name: "Terminal".to_string(),
+                    command: "open -a Terminal {path}".to_string(),
+                },
+                TerminalEntry {
+                    name: "iTerm2".to_string(),
+                    command: "open -a iTerm {path}".to_string(),
+                },
+                TerminalEntry {
+                    name: "Warp".to_string(),
+                    command: "open -a Warp {path}".to_string(),
+                },
+            ],
+            default_terminal: "Terminal".to_string(),
         }
     }
 }

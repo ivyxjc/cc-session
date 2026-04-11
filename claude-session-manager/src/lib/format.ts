@@ -23,7 +23,25 @@ export function formatFileSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
 }
 
+let _locale: string | undefined;
+
+export function setLocale(locale: string | undefined) {
+  _locale = locale;
+}
+
+export function getLocale(): string | undefined {
+  return _locale;
+}
+
 export function formatDateTime(timestampMs: number | null): string {
   if (!timestampMs) return "Unknown";
-  return new Date(timestampMs).toLocaleString();
+  const locale = _locale || navigator.language || undefined;
+  return new Date(timestampMs).toLocaleString(locale, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }

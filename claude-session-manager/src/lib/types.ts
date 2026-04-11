@@ -24,6 +24,8 @@ export interface SessionSummary {
   assistantMsgCount: number;
   totalInputTokens: number;
   totalOutputTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
   fileSize: number;
   isFavorited: boolean;
   isBackedUp: boolean;
@@ -61,6 +63,16 @@ export interface SubagentSummary {
   agentId: string;
   agentType: string;
   description: string;
+}
+
+export interface TerminalEntry {
+  name: string;
+  command: string;
+}
+
+export interface TerminalConfig {
+  terminals: TerminalEntry[];
+  defaultTerminal: string;
 }
 
 export interface ScanResult {

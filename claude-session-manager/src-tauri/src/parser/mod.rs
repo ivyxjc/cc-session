@@ -18,6 +18,8 @@ pub struct SessionParseResult {
     pub assistant_msg_count: i64,
     pub total_input_tokens: i64,
     pub total_output_tokens: i64,
+    pub total_cache_creation_tokens: i64,
+    pub total_cache_read_tokens: i64,
 }
 
 /// Parse a session JSONL file and extract metadata for indexing.
@@ -38,6 +40,8 @@ pub fn parse_session_metadata(path: &Path) -> Result<SessionParseResult, String>
         assistant_msg_count: 0,
         total_input_tokens: 0,
         total_output_tokens: 0,
+        total_cache_creation_tokens: 0,
+        total_cache_read_tokens: 0,
     };
 
     for line in reader.lines() {
@@ -94,6 +98,10 @@ pub fn parse_session_metadata(path: &Path) -> Result<SessionParseResult, String>
                         result.total_input_tokens += usage.get("input_tokens")
                             .and_then(|v| v.as_i64()).unwrap_or(0);
                         result.total_output_tokens += usage.get("output_tokens")
+                            .and_then(|v| v.as_i64()).unwrap_or(0);
+                        result.total_cache_creation_tokens += usage.get("cache_creation_input_tokens")
+                            .and_then(|v| v.as_i64()).unwrap_or(0);
+                        result.total_cache_read_tokens += usage.get("cache_read_input_tokens")
                             .and_then(|v| v.as_i64()).unwrap_or(0);
                     }
                 }

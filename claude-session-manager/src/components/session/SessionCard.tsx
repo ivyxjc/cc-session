@@ -1,7 +1,9 @@
 import type { SessionSummary } from "../../lib/types";
-import { formatRelativeTime, formatTokens, formatFileSize } from "../../lib/format";
+import { formatDateTime, formatTokens, formatFileSize } from "../../lib/format";
 import { useAppStore } from "../../stores/appStore";
+import { CopyText } from "../common/CopyText";
 import { FavoriteButton } from "../common/FavoriteButton";
+import { OpenTerminalButton } from "../common/OpenTerminalButton";
 import { TagBadge } from "../common/TagBadge";
 
 export function SessionCard({ session }: { session: SessionSummary }) {
@@ -17,19 +19,11 @@ export function SessionCard({ session }: { session: SessionSummary }) {
           <span className="font-medium truncate">
             {session.slug || session.sessionId.slice(0, 8)}
           </span>
-          <span
-            onClick={(e) => {
-              e.stopPropagation();
-              navigator.clipboard.writeText(session.sessionId);
-            }}
-            title="Click to copy session ID"
-            className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer font-mono shrink-0"
-          >
-            {session.sessionId.slice(0, 8)}
-          </span>
+          <CopyText text={session.sessionId} display={session.sessionId.slice(0, 8)} />
         </div>
         <div className="flex items-center gap-2 ml-2 shrink-0">
-          <span className="text-xs text-zinc-400">{formatRelativeTime(session.lastActive)}</span>
+          <span className="text-xs text-zinc-400">{formatDateTime(session.lastActive)}</span>
+          <OpenTerminalButton path={session.projectPath} />
           <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
         </div>
       </div>
@@ -40,7 +34,7 @@ export function SessionCard({ session }: { session: SessionSummary }) {
         {session.projectPath}
       </div>
       <div className="text-xs text-zinc-400 mt-1">
-        {session.messageCount} messages &middot; {formatTokens(session.totalInputTokens + session.totalOutputTokens)} tokens &middot; {formatFileSize(session.fileSize)}
+        {session.messageCount} msgs &middot; total {formatTokens(session.totalInputTokens + session.totalOutputTokens + session.totalCacheCreationTokens + session.totalCacheReadTokens)} &middot; in {formatTokens(session.totalInputTokens)} &middot; out {formatTokens(session.totalOutputTokens)} &middot; cache R {formatTokens(session.totalCacheReadTokens)} &middot; cache W {formatTokens(session.totalCacheCreationTokens)} &middot; {formatFileSize(session.fileSize)}
       </div>
       {session.tags.length > 0 && (
         <div className="flex gap-1 mt-2 flex-wrap">

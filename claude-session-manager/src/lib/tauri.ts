@@ -1,7 +1,7 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
   Project, SessionSummary, ParsedMessage, SubagentSummary,
-  Tag, Backup, BackupConfig, ScanResult,
+  Tag, Backup, BackupConfig, TerminalConfig, ScanResult,
 } from "./types";
 
 // Safe invoke wrapper — returns empty/default when not in Tauri webview (e.g. browser dev)
@@ -81,6 +81,19 @@ export const getBackupConfig = () =>
 
 export const setBackupConfig = (config: BackupConfig) =>
   invoke<void>("set_backup_config_cmd", { config });
+
+// Terminal
+export const getTerminalConfig = () =>
+  invoke<TerminalConfig>("get_terminal_config");
+
+export const setTerminalConfig = (config: TerminalConfig) =>
+  invoke<void>("set_terminal_config", { config });
+
+export const openTerminal = (path: string, terminalName?: string) =>
+  invoke<void>("open_terminal", { path, terminalName });
+
+export const testTerminalCommand = (command: string) =>
+  invoke<void>("test_terminal_command", { command });
 
 // Scanning
 export const refreshIndex = () =>

@@ -2,7 +2,9 @@ import { useState } from "react";
 import type { SessionSummary } from "../../lib/types";
 import { formatDateTime, formatTokens, formatFileSize } from "../../lib/format";
 import { backupSession } from "../../lib/tauri";
+import { CopyText } from "../common/CopyText";
 import { FavoriteButton } from "../common/FavoriteButton";
+import { OpenTerminalButton } from "../common/OpenTerminalButton";
 import { TagBadge } from "../common/TagBadge";
 import { TagManager } from "../common/TagManager";
 import { useAppStore } from "../../stores/appStore";
@@ -56,16 +58,18 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
             </div>
           )}
         </div>
+        <OpenTerminalButton path={session.projectPath} />
         <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
       </div>
       <h1 className="text-lg font-semibold mt-2">
         {session.slug || session.sessionId.slice(0, 8)}
       </h1>
+      <CopyText text={session.sessionId} />
       <div className="text-sm text-zinc-500 mt-0.5">
         {session.projectName} &middot; {session.gitBranch || "\u2014"} &middot; {session.version || "\u2014"} &middot; {session.permissionMode || "default"}
       </div>
       <div className="text-xs text-zinc-400 mt-1">
-        {formatDateTime(session.startedAt)} &middot; {session.messageCount} msgs &middot; {formatTokens(session.totalInputTokens + session.totalOutputTokens)} tokens &middot; {formatFileSize(session.fileSize)}
+        {formatDateTime(session.startedAt)} &middot; {session.messageCount} msgs &middot; total {formatTokens(session.totalInputTokens + session.totalOutputTokens + session.totalCacheCreationTokens + session.totalCacheReadTokens)} &middot; in {formatTokens(session.totalInputTokens)} &middot; out {formatTokens(session.totalOutputTokens)} &middot; cache R {formatTokens(session.totalCacheReadTokens)} &middot; cache W {formatTokens(session.totalCacheCreationTokens)} &middot; {formatFileSize(session.fileSize)}
         {session.isBackedUp && " \u00B7 Backed up"}
       </div>
       {session.tags.length > 0 && (

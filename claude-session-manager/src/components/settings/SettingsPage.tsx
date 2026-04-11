@@ -1,11 +1,14 @@
 import { useState, useEffect } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { getBackupConfig, setBackupConfig, migrateBackups } from "../../lib/tauri";
-import type { BackupConfig } from "../../lib/types";
+import { getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand } from "../../lib/tauri";
+import { setLocale as setGlobalLocale } from "../../lib/format";
+import type { BackupConfig, TerminalConfig } from "../../lib/types";
 
 export function SettingsPage() {
   const [config, setConfig] = useState<BackupConfig | null>(null);
   const [originalDir, setOriginalDir] = useState<string>("");
+  const [termConfig, setTermConfig] = useState<TerminalConfig | null>(null);
+  const [locale, setLocale] = useState<string>(localStorage.getItem("locale") || "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [migrating, setMigrating] = useState(false);
@@ -15,6 +18,7 @@ export function SettingsPage() {
       setConfig(c);
       setOriginalDir(c.backupDir);
     });
+    getTerminalConfig().then(setTermConfig);
   }, []);
 
   const save = async () => {
@@ -34,6 +38,17 @@ export function SettingsPage() {
     }
 
     await setBackupConfig(config);
+    if (termConfig) await setTerminalConfig(termConfig);
+
+    // Save locale
+    if (locale) {
+      localStorage.setItem("locale", locale);
+      setGlobalLocale(locale);
+    } else {
+      localStorage.removeItem("locale");
+      setGlobalLocale(undefined);
+    }
+
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -119,6 +134,121 @@ export function SettingsPage() {
           />
         </div>
 
+      </section>
+
+      {/* Display Settings */}
+      <section className="space-y-4 max-w-lg mt-8">
+        <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Display</h2>
+        <div>
+          <label className="text-sm font-medium">Date/time locale</label>
+          <div className="flex gap-2 mt-1 items-center">
+            <select
+              value={locale}
+              onChange={(e) => setLocale(e.target.value)}
+              className="flex-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            >
+              <option value="">System default ({navigator.language})</option>
+              <option value="zh-CN">zh-CN (2026/04/10 16:44:28)</option>
+              <option value="en-US">en-US (04/10/2026, 4:44:28 PM)</option>
+              <option value="en-GB">en-GB (10/04/2026, 16:44:28)</option>
+              <option value="ja-JP">ja-JP (2026/04/10 16:44:28)</option>
+              <option value="de-DE">de-DE (10.04.2026, 16:44:28)</option>
+            </select>
+            <input
+              type="text"
+              value={locale}
+              onChange={(e) => setLocale(e.target.value)}
+              placeholder="or type locale code"
+              className="w-40 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            />
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">Leave empty for system default. Or enter any BCP 47 locale code (e.g. zh-TW, ko-KR).</p>
+        </div>
+      </section>
+
+      {/* Terminal Settings */}
+      {termConfig && (
+        <section className="space-y-4 max-w-lg mt-8">
+          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Terminal</h2>
+
+          <div>
+            <label className="text-sm font-medium">Default terminal</label>
+            <select
+              value={termConfig.defaultTerminal}
+              onChange={(e) => setTermConfig({ ...termConfig, defaultTerminal: e.target.value })}
+              className="w-full mt-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            >
+              {termConfig.terminals.map((t) => (
+                <option key={t.name} value={t.name}>{t.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-3">
+            <label className="text-sm font-medium">Terminals</label>
+            {termConfig.terminals.map((t, i) => (
+              <div key={i} className="flex gap-2 items-start">
+                <div className="flex-1 space-y-1">
+                  <input
+                    type="text"
+                    value={t.name}
+                    onChange={(e) => {
+                      const updated = [...termConfig.terminals];
+                      updated[i] = { ...updated[i], name: e.target.value };
+                      setTermConfig({ ...termConfig, terminals: updated });
+                    }}
+                    placeholder="Name"
+                    className="w-full px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+                  />
+                  <input
+                    type="text"
+                    value={t.command}
+                    onChange={(e) => {
+                      const updated = [...termConfig.terminals];
+                      updated[i] = { ...updated[i], command: e.target.value };
+                      setTermConfig({ ...termConfig, terminals: updated });
+                    }}
+                    placeholder="Command (use {path} as placeholder)"
+                    className="w-full px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm font-mono"
+                  />
+                </div>
+                <div className="flex flex-col gap-1 mt-0.5">
+                  <button
+                    onClick={() => testTerminalCommand(t.command).catch(console.error)}
+                    className="px-2 py-1 text-xs border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  >
+                    Test
+                  </button>
+                  <button
+                    onClick={() => {
+                      const updated = termConfig.terminals.filter((_, j) => j !== i);
+                      setTermConfig({ ...termConfig, terminals: updated });
+                    }}
+                    className="px-2 py-1 text-xs text-red-500 hover:text-red-700"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            ))}
+            <button
+              onClick={() => {
+                setTermConfig({
+                  ...termConfig,
+                  terminals: [...termConfig.terminals, { name: "", command: "" }],
+                });
+              }}
+              className="text-sm text-blue-600 hover:text-blue-700"
+            >
+              + Add terminal
+            </button>
+          </div>
+          <p className="text-xs text-zinc-400">Use <code className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded">{"{path}"}</code> in the command as a placeholder for the project directory.</p>
+        </section>
+      )}
+
+      {/* Save */}
+      <div className="mt-8 max-w-lg">
         <button
           onClick={save}
           disabled={saving}
@@ -126,7 +256,7 @@ export function SettingsPage() {
         >
           {migrating ? "Migrating backups..." : saving ? "Saving..." : saved ? "Saved!" : "Save"}
         </button>
-      </section>
+      </div>
     </div>
   );
 }

@@ -50,6 +50,8 @@ impl Database {
                 assistant_msg_count INTEGER DEFAULT 0,
                 total_input_tokens  INTEGER DEFAULT 0,
                 total_output_tokens INTEGER DEFAULT 0,
+                total_cache_creation_tokens INTEGER DEFAULT 0,
+                total_cache_read_tokens INTEGER DEFAULT 0,
                 file_size           INTEGER DEFAULT 0,
                 file_mtime          INTEGER DEFAULT 0,
                 is_backed_up        INTEGER DEFAULT 0,
@@ -109,6 +111,11 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_backups_session       ON backups(session_id);
             CREATE INDEX IF NOT EXISTS idx_subagents_session     ON subagents(session_id);
         ")?;
+
+        // Migration: add cache token columns for existing DBs
+        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_creation_tokens INTEGER DEFAULT 0", []).ok();
+        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_read_tokens INTEGER DEFAULT 0", []).ok();
+
         Ok(())
     }
 

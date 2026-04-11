@@ -105,6 +105,12 @@ export function Sidebar() {
           All Projects
         </button>
         <button
+          onClick={() => { setView("sessions"); selectProject(null); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "sessions" && !selectedProjectId ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          All Sessions
+        </button>
+        <button
           onClick={() => { setView("favorites"); selectProject(null); setSearchQuery(""); }}
           className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "favorites" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
         >
@@ -138,8 +144,10 @@ export function Sidebar() {
       )}
 
       {/* Projects (grouped by displayName) */}
-      <div className="flex-1 overflow-y-auto px-3 py-2">
+      <div className="px-3 pt-2">
         <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Projects</h3>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 pb-2">
         <div className="space-y-0.5">
           {projectGroups.map((group) => {
             const isMulti = group.projects.length > 1;
