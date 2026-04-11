@@ -1,3 +1,4 @@
+import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import type { ParsedMessage, ContentBlock, SubagentSummary } from "../../lib/types";
@@ -97,7 +98,7 @@ interface Props {
   toolResults?: Map<string, ToolResult>;
 }
 
-export function MessageBubble({ message, subagents, toolResults }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, subagents, toolResults }: Props) {
   if (message.type === "permissionMode" || message.type === "fileHistorySnapshot" || message.type === "attachment") {
     return null;
   }
@@ -134,4 +135,4 @@ export function MessageBubble({ message, subagents, toolResults }: Props) {
       </div>
     </div>
   );
-}
+});

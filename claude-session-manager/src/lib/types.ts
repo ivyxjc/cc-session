@@ -102,6 +102,11 @@ export interface SessionMessagesUpdate {
   newMessages: ParsedMessage[];
 }
 
+export interface LatestMessagesResult {
+  messages: ParsedMessage[];
+  totalCount: number;
+}
+
 export interface ScanResult {
   projectsFound: number;
   sessionsFound: number;

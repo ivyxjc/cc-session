@@ -1,11 +1,55 @@
-import { useEffect, useMemo, useState } from "react";
-import { getMessages, getSubagents, listSessions } from "../../lib/tauri";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { getLatestMessages, getMessages, getSubagents, listSessions } from "../../lib/tauri";
 import type { ParsedMessage, SessionSummary, SubagentSummary } from "../../lib/types";
+import type { ToolResult } from "../../lib/toolResults";
 import { useAppStore } from "../../stores/appStore";
 import { SessionHeader } from "./SessionHeader";
 import { MessageBubble } from "../message/MessageBubble";
 import { SubagentView } from "../message/SubagentView";
-import { buildToolResultsMap } from "../../lib/toolResults";
+
+// Reuse the same incremental tool results approach as LiveConversationView
+function useIncrementalToolResults(messages: ParsedMessage[]) {
+  const mapRef = useRef(new Map<string, ToolResult>());
+  const processedRef = useRef(0);
+
+  if (messages.length > processedRef.current) {
+    for (let i = processedRef.current; i < messages.length; i++) {
+      const msg = messages[i];
+      if (msg.type !== "user") continue;
+      for (const block of msg.content) {
+        if (block.type === "tool_result" && block.toolUseId) {
+          const content = extractToolResultContent(block);
+          mapRef.current.set(block.toolUseId, { content, isError: block.isError ?? false });
+        }
+      }
+    }
+    processedRef.current = messages.length;
+  }
+
+  return mapRef.current;
+}
+
+function extractToolResultContent(block: { content?: unknown }): string {
+  const raw = block.content;
+  if (typeof raw === "string") return raw;
+  if (Array.isArray(raw)) {
+    return raw
+      .filter((b: Record<string, unknown>) => b.type === "text")
+      .map((b: Record<string, unknown>) => b.text || "")
+      .join("\n");
+  }
+  return String(raw ?? "");
+}
+
+function getMessageKey(msg: ParsedMessage, index: number): string {
+  if (msg.type === "user" || msg.type === "assistant") return msg.uuid || `msg-${index}`;
+  if (msg.type === "system") return msg.uuid || `sys-${index}`;
+  return `msg-${index}`;
+}
+
+const INITIAL_LOAD = 100;
+const OLDER_BATCH = 50;
 
 export function ConversationView() {
   const { selectedSessionId } = useAppStore();
@@ -13,40 +57,55 @@ export function ConversationView() {
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [offset, setOffset] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
+  const [subagentsExpanded, setSubagentsExpanded] = useState(false);
 
-  const toolResults = useMemo(() => buildToolResultsMap(messages), [messages]);
+  const [firstItemIndex, setFirstItemIndex] = useState(0);
+  const loadingOlderRef = useRef(false);
+  const earliestOffsetRef = useRef(0);
+  const hasOlderRef = useRef(false);
+
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const toolResults = useIncrementalToolResults(messages);
 
   useEffect(() => {
     if (!selectedSessionId) return;
     setLoading(true);
-    setOffset(0);
-    setMessages([]);
+    setSubagentsExpanded(false);
 
     Promise.all([
       listSessions({ projectId: undefined }).then((sessions) =>
-        sessions.find((s) => s.id === selectedSessionId) || null
+        sessions.find((s) => s.id === selectedSessionId) || null,
       ),
-      getMessages(selectedSessionId, 0, 50),
+      getLatestMessages(selectedSessionId, INITIAL_LOAD),
       getSubagents(selectedSessionId),
-    ]).then(([sess, msgs, subs]) => {
+    ]).then(([sess, result, subs]) => {
+      const startOffset = result.totalCount - result.messages.length;
       setSession(sess);
-      setMessages(msgs);
+      setMessages(result.messages);
       setSubagents(subs);
-      setHasMore(msgs.length === 50);
-      setOffset(50);
+      setFirstItemIndex(startOffset);
+      earliestOffsetRef.current = startOffset;
+      hasOlderRef.current = startOffset > 0;
+      loadingOlderRef.current = false;
       setLoading(false);
     });
   }, [selectedSessionId]);
 
-  const loadMore = async () => {
-    if (!selectedSessionId || !hasMore) return;
-    const more = await getMessages(selectedSessionId, offset, 50);
-    setMessages((prev) => [...prev, ...more]);
-    setHasMore(more.length === 50);
-    setOffset((prev) => prev + 50);
-  };
+  const handleStartReached = useCallback(() => {
+    if (!selectedSessionId || !hasOlderRef.current || loadingOlderRef.current) return;
+    loadingOlderRef.current = true;
+
+    const loadCount = Math.min(OLDER_BATCH, earliestOffsetRef.current);
+    const newOffset = earliestOffsetRef.current - loadCount;
+
+    getMessages(selectedSessionId, newOffset, loadCount).then((older) => {
+      setMessages((prev) => [...older, ...prev]);
+      setFirstItemIndex(newOffset);
+      earliestOffsetRef.current = newOffset;
+      hasOlderRef.current = newOffset > 0;
+      loadingOlderRef.current = false;
+    });
+  }, [selectedSessionId]);
 
   if (loading || !session) {
     return <div className="p-6 text-zinc-500">Loading conversation...</div>;
@@ -54,33 +113,64 @@ export function ConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      <SessionHeader session={session} onRefresh={() => {
-        listSessions({ projectId: undefined }).then((sessions) => {
-          const updated = sessions.find((s) => s.id === selectedSessionId);
-          if (updated) setSession(updated);
-        });
-      }} />
-      <div className="flex-1 overflow-y-auto p-4 space-y-3">
-        {messages.map((msg, i) => (
-          <MessageBubble key={i} message={msg} subagents={subagents} toolResults={toolResults} />
-        ))}
-        {hasMore && (
-          <button
-            onClick={loadMore}
-            className="w-full py-2 text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-          >
-            Load more messages...
-          </button>
-        )}
-        {subagents.length > 0 && (
-          <div className="mt-4 pt-4 border-t border-zinc-200 dark:border-zinc-800">
-            <h3 className="text-sm font-medium text-zinc-500 mb-2">Subagents ({subagents.length})</h3>
-            {subagents.map((sa) => (
-              <SubagentView key={sa.id} subagent={sa} />
-            ))}
-          </div>
-        )}
+      <SessionHeader
+        session={session}
+        onRefresh={() => {
+          listSessions({ projectId: undefined }).then((sessions) => {
+            const updated = sessions.find((s) => s.id === selectedSessionId);
+            if (updated) setSession(updated);
+          });
+        }}
+      />
+
+      {/* Virtualized message list */}
+      <div className="flex-1">
+        <Virtuoso
+          ref={virtuosoRef}
+          data={messages}
+          firstItemIndex={firstItemIndex}
+          initialTopMostItemIndex={messages.length - 1}
+          startReached={handleStartReached}
+          itemContent={(index, msg) => (
+            <div className="px-4 py-1.5">
+              <MessageBubble
+                key={getMessageKey(msg, index)}
+                message={msg}
+                subagents={subagents}
+                toolResults={toolResults}
+              />
+            </div>
+          )}
+          components={{
+            Header: () =>
+              hasOlderRef.current && loadingOlderRef.current ? (
+                <div className="text-center text-xs text-zinc-400 py-2">
+                  Loading older messages...
+                </div>
+              ) : null,
+          }}
+        />
       </div>
+
+      {/* Subagents — collapsed by default */}
+      {subagents.length > 0 && (
+        <div className="border-t border-zinc-200 dark:border-zinc-800">
+          <button
+            onClick={() => setSubagentsExpanded((v) => !v)}
+            className="w-full px-4 py-2 text-sm text-left text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900 flex items-center gap-2"
+          >
+            <span className="font-mono text-xs">{subagentsExpanded ? "\u25BC" : "\u25B6"}</span>
+            <span className="font-medium">Subagents ({subagents.length})</span>
+          </button>
+          {subagentsExpanded && (
+            <div className="px-4 pb-3 max-h-48 overflow-y-auto space-y-2">
+              {subagents.map((sa) => (
+                <SubagentView key={sa.id} subagent={sa} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

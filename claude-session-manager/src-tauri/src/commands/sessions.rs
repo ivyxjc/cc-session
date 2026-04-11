@@ -161,6 +161,25 @@ pub fn get_messages(
 }
 
 #[tauri::command]
+pub fn get_latest_messages(
+    db: State<'_, Arc<Database>>,
+    session_id: i64,
+    count: Option<usize>,
+) -> Result<parser::LatestMessagesResult, String> {
+    let conn = db.conn();
+    let jsonl_path: String = conn.query_row(
+        "SELECT jsonl_path FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| row.get(0),
+    ).map_err(|e| format!("Session not found: {}", e))?;
+
+    parser::load_latest_messages(
+        Path::new(&jsonl_path),
+        count.unwrap_or(50),
+    )
+}
+
+#[tauri::command]
 pub fn get_subagents(
     db: State<'_, Arc<Database>>,
     session_id: i64,

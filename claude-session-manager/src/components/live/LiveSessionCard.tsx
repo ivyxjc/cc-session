@@ -1,5 +1,6 @@
 import type { LiveSession } from "../../lib/types";
 import { formatTokens, formatRelativeTime } from "../../lib/format";
+import { CopyText } from "../common/CopyText";
 import { LiveStatusBadge } from "./LiveStatusBadge";
 import { RunningTimer } from "./RunningTimer";
 
@@ -27,6 +28,7 @@ export function LiveSessionCard({ session, onClick }: Props) {
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <LiveStatusBadge isAlive={session.isAlive} />
           <span className="font-medium truncate">{displayName}</span>
+          <CopyText text={session.sessionId} display={session.sessionId.slice(0, 8)} />
         </div>
         <div className="text-xs text-zinc-400 shrink-0 ml-2">
           {session.isAlive ? (

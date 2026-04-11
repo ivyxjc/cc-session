@@ -2,6 +2,7 @@ import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
   Project, SessionSummary, ParsedMessage, SubagentSummary,
   Tag, Backup, BackupConfig, TerminalConfig, ScanResult, LiveSession,
+  LatestMessagesResult,
 } from "./types";
 
 // Safe invoke wrapper — returns empty/default when not in Tauri webview (e.g. browser dev)
@@ -27,6 +28,9 @@ export const listSessions = (params: {
 
 export const getMessages = (sessionId: number, offset = 0, limit = 50) =>
   invoke<ParsedMessage[]>("get_messages", { sessionId, offset, limit });
+
+export const getLatestMessages = (sessionId: number, count = 50) =>
+  invoke<LatestMessagesResult>("get_latest_messages", { sessionId, count });
 
 export const getSubagents = (sessionId: number) =>
   invoke<SubagentSummary[]>("get_subagents", { sessionId });

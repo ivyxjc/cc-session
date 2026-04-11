@@ -153,3 +153,48 @@ pub fn load_messages(path: &Path, offset: usize, limit: usize) -> Result<Vec<Par
 
     Ok(messages)
 }
+
+/// Result of loading latest messages, includes total count for pagination.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LatestMessagesResult {
+    pub messages: Vec<ParsedMessage>,
+    pub total_count: usize,
+}
+
+/// Load the latest N messages from a session JSONL (from the end of the file).
+/// Used for live session views where we want to see the most recent messages.
+/// Returns the messages and the total displayable message count.
+pub fn load_latest_messages(path: &Path, count: usize) -> Result<LatestMessagesResult, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+    let reader = BufReader::new(file);
+
+    let mut all_raws: Vec<RawMessage> = Vec::new();
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Read error: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let raw: RawMessage = match serde_json::from_str(&line) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+        if matches!(raw.msg_type.as_str(), "user" | "assistant" | "system") {
+            all_raws.push(raw);
+        }
+    }
+
+    let total_count = all_raws.len();
+    let skip = total_count.saturating_sub(count);
+    let messages = all_raws
+        .into_iter()
+        .skip(skip)
+        .filter_map(|raw| ParsedMessage::from_raw(&raw))
+        .collect();
+
+    Ok(LatestMessagesResult {
+        messages,
+        total_count,
+    })
+}

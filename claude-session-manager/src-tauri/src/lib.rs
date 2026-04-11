@@ -27,6 +27,7 @@ pub fn run() {
             commands::projects::list_projects,
             commands::sessions::list_sessions,
             commands::sessions::get_messages,
+            commands::sessions::get_latest_messages,
             commands::sessions::get_subagents,
             commands::sessions::get_subagent_messages,
             commands::scan::refresh_index,
