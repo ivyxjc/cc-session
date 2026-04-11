@@ -48,6 +48,24 @@ function getMessageKey(msg: ParsedMessage, index: number): string {
   return `msg-${index}`;
 }
 
+/** Find the message index that contains an Agent tool_use matching this subagent */
+function findSubagentMessageIndex(messages: ParsedMessage[], description: string): number {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.type !== "assistant") continue;
+    for (const block of msg.content) {
+      if (
+        block.type === "tool_use" &&
+        block.name === "Agent" &&
+        (block.input as { description?: string })?.description === description
+      ) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
 const INITIAL_LOAD = 100;
 const OLDER_BATCH = 50;
 
@@ -90,6 +108,32 @@ export function ConversationView() {
       setLoading(false);
     });
   }, [selectedSessionId]);
+
+  const locateSubagent = useCallback(async (description: string) => {
+    // First check in currently loaded messages
+    let idx = findSubagentMessageIndex(messages, description);
+    if (idx >= 0) {
+      virtuosoRef.current?.scrollToIndex({ index: idx, align: "center", behavior: "smooth" });
+      return;
+    }
+    // Not in loaded messages — load all history then search
+    if (selectedSessionId && earliestOffsetRef.current > 0) {
+      const older = await getMessages(selectedSessionId, 0, earliestOffsetRef.current);
+      setMessages((prev) => [...older, ...prev]);
+      setFirstItemIndex(0);
+      earliestOffsetRef.current = 0;
+      hasOlderRef.current = false;
+
+      // Search in the full message list (older + current)
+      idx = findSubagentMessageIndex(older, description);
+      if (idx >= 0) {
+        // Use setTimeout to let Virtuoso process the new items
+        setTimeout(() => {
+          virtuosoRef.current?.scrollToIndex({ index: idx, align: "center", behavior: "smooth" });
+        }, 100);
+      }
+    }
+  }, [messages, selectedSessionId]);
 
   const handleStartReached = useCallback(() => {
     if (!selectedSessionId || !hasOlderRef.current || loadingOlderRef.current) return;
@@ -152,20 +196,24 @@ export function ConversationView() {
         />
       </div>
 
-      {/* Subagents — collapsed by default */}
+      {/* Subagents — collapsed by default, expands to 50% height */}
       {subagents.length > 0 && (
-        <div className="border-t border-zinc-200 dark:border-zinc-800">
+        <div className={`border-t border-zinc-200 dark:border-zinc-800 flex flex-col ${subagentsExpanded ? "max-h-[50vh]" : ""}`}>
           <button
             onClick={() => setSubagentsExpanded((v) => !v)}
-            className="w-full px-4 py-2 text-sm text-left text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900 flex items-center gap-2"
+            className="w-full px-4 py-2 text-sm text-left text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900 flex items-center gap-2 shrink-0"
           >
             <span className="font-mono text-xs">{subagentsExpanded ? "\u25BC" : "\u25B6"}</span>
             <span className="font-medium">Subagents ({subagents.length})</span>
           </button>
           {subagentsExpanded && (
-            <div className="px-4 pb-3 max-h-48 overflow-y-auto space-y-2">
+            <div className="px-4 pb-3 overflow-y-auto space-y-2 flex-1 min-h-0">
               {subagents.map((sa) => (
-                <SubagentView key={sa.id} subagent={sa} />
+                <SubagentView
+                  key={sa.id}
+                  subagent={sa}
+                  onLocate={() => locateSubagent(sa.description)}
+                />
               ))}
             </div>
           )}

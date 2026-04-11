@@ -58,6 +58,23 @@ function getMessageKey(msg: ParsedMessage, index: number): string {
   return `msg-${index}`;
 }
 
+function findSubagentMessageIndex(messages: ParsedMessage[], description: string): number {
+  for (let i = 0; i < messages.length; i++) {
+    const msg = messages[i];
+    if (msg.type !== "assistant") continue;
+    for (const block of msg.content) {
+      if (
+        block.type === "tool_use" &&
+        block.name === "Agent" &&
+        (block.input as { description?: string })?.description === description
+      ) {
+        return i;
+      }
+    }
+  }
+  return -1;
+}
+
 // --- Component ---
 
 const INITIAL_LOAD = 100;
@@ -72,6 +89,8 @@ export function LiveConversationView() {
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+
+  const [subagentsExpanded, setSubagentsExpanded] = useState(false);
 
   // For prepending: firstItemIndex tells Virtuoso the "virtual" index of the first item
   const [firstItemIndex, setFirstItemIndex] = useState(0);
@@ -161,6 +180,28 @@ export function LiveConversationView() {
     });
   }, [dbSessionId]);
 
+  const locateSubagent = useCallback(async (description: string) => {
+    let idx = findSubagentMessageIndex(messages, description);
+    if (idx >= 0) {
+      virtuosoRef.current?.scrollToIndex({ index: idx, align: "center", behavior: "smooth" });
+      return;
+    }
+    if (dbSessionId && earliestOffsetRef.current > 0) {
+      const older = await getMessages(dbSessionId, 0, earliestOffsetRef.current);
+      setMessages((prev) => [...older, ...prev]);
+      setFirstItemIndex(0);
+      earliestOffsetRef.current = 0;
+      hasOlderRef.current = false;
+
+      idx = findSubagentMessageIndex(older, description);
+      if (idx >= 0) {
+        setTimeout(() => {
+          virtuosoRef.current?.scrollToIndex({ index: idx, align: "center", behavior: "smooth" });
+        }, 100);
+      }
+    }
+  }, [messages, dbSessionId]);
+
   const handleBack = () => {
     setWatchedSessionId(null);
     setView("live");
@@ -240,15 +281,27 @@ export function LiveConversationView() {
         />
       </div>
 
-      {/* Subagents */}
+      {/* Subagents — collapsed by default, expands to 50% height */}
       {subagents.length > 0 && (
-        <div className="border-t border-zinc-200 dark:border-zinc-800 p-4 max-h-48 overflow-y-auto">
-          <h3 className="text-sm font-medium text-zinc-500 mb-2">
-            Subagents ({subagents.length})
-          </h3>
-          {subagents.map((sa) => (
-            <SubagentView key={sa.id} subagent={sa} />
-          ))}
+        <div className={`border-t border-zinc-200 dark:border-zinc-800 flex flex-col ${subagentsExpanded ? "max-h-[50vh]" : ""}`}>
+          <button
+            onClick={() => setSubagentsExpanded((v) => !v)}
+            className="w-full px-4 py-2 text-sm text-left text-zinc-500 hover:bg-zinc-50 dark:hover:bg-zinc-900 flex items-center gap-2 shrink-0"
+          >
+            <span className="font-mono text-xs">{subagentsExpanded ? "\u25BC" : "\u25B6"}</span>
+            <span className="font-medium">Subagents ({subagents.length})</span>
+          </button>
+          {subagentsExpanded && (
+            <div className="px-4 pb-3 overflow-y-auto space-y-2 flex-1 min-h-0">
+              {subagents.map((sa) => (
+                <SubagentView
+                  key={sa.id}
+                  subagent={sa}
+                  onLocate={() => locateSubagent(sa.description)}
+                />
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
