@@ -26,9 +26,23 @@ export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
 
   const title = favoritesOnly ? "Favorites" : "Sessions";
 
+  const { setSortBy } = useFilterStore();
+
   return (
     <div className="p-6 h-full overflow-y-auto">
-      <h1 className="text-xl font-semibold mb-4">{title}</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1 className="text-xl font-semibold">{title}</h1>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="text-sm px-2 py-1 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800"
+        >
+          <option value="time">Last active</option>
+          <option value="messages">Most messages</option>
+          <option value="tokens">Most tokens</option>
+          <option value="size">Largest size</option>
+        </select>
+      </div>
       {loading ? (
         <div className="text-zinc-500">Loading...</div>
       ) : sessions.length === 0 ? (

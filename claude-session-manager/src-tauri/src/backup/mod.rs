@@ -159,6 +159,67 @@ pub fn backup_session_file(
     })
 }
 
+pub fn migrate_backups(db: &Arc<Database>, old_dir: &str, new_dir: &str) -> Result<u32, String> {
+    let old_path = Path::new(old_dir);
+    let new_path = Path::new(new_dir);
+
+    if !old_path.exists() {
+        return Ok(0);
+    }
+    if old_dir == new_dir {
+        return Ok(0);
+    }
+
+    fs::create_dir_all(new_path)
+        .map_err(|e| format!("Failed to create new backup dir: {}", e))?;
+
+    // Recursively copy all files
+    let mut count: u32 = 0;
+    copy_dir_recursive(old_path, new_path)?;
+
+    // Update all backup_path records in DB
+    let conn = db.conn();
+    let old_prefix = old_dir.trim_end_matches('/');
+    let new_prefix = new_dir.trim_end_matches('/');
+
+    let mut stmt = conn.prepare("SELECT id, backup_path FROM backups")
+        .map_err(|e| format!("DB error: {}", e))?;
+    let rows: Vec<(i64, String)> = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .map_err(|e| format!("DB error: {}", e))?
+        .filter_map(|r| r.ok())
+        .collect();
+
+    for (id, path) in &rows {
+        if path.starts_with(old_prefix) {
+            let new_bp = format!("{}{}", new_prefix, &path[old_prefix.len()..]);
+            conn.execute("UPDATE backups SET backup_path = ?1 WHERE id = ?2", params![new_bp, id])
+                .map_err(|e| format!("DB error: {}", e))?;
+            count += 1;
+        }
+    }
+
+    // Remove old directory
+    fs::remove_dir_all(old_path).ok();
+
+    Ok(count)
+}
+
+fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
+    fs::create_dir_all(dst).map_err(|e| format!("mkdir error: {}", e))?;
+    for entry in fs::read_dir(src).map_err(|e| format!("read_dir error: {}", e))? {
+        let entry = entry.map_err(|e| format!("entry error: {}", e))?;
+        let src_path = entry.path();
+        let dst_path = dst.join(entry.file_name());
+        if src_path.is_dir() {
+            copy_dir_recursive(&src_path, &dst_path)?;
+        } else {
+            fs::copy(&src_path, &dst_path)
+                .map_err(|e| format!("copy error {}: {}", src_path.display(), e))?;
+        }
+    }
+    Ok(())
+}
+
 pub fn restore_backup(backup_path: &str, compressed: bool) -> Result<(), String> {
     let path = Path::new(backup_path);
     if !path.exists() {

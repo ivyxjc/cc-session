@@ -1,7 +1,10 @@
 use crate::backup;
 use crate::db::Database;
 use crate::db::models::{Backup, BackupConfig};
+use crate::parser;
+use crate::parser::messages::ParsedMessage;
 use rusqlite::params;
+use std::path::Path;
 use std::sync::Arc;
 use tauri::State;
 
@@ -120,6 +123,28 @@ pub fn delete_backup(
     conn.execute("DELETE FROM backups WHERE id = ?1", params![backup_id])
         .map_err(|e| format!("DB error: {}", e))?;
     Ok(())
+}
+
+#[tauri::command]
+pub fn get_backup_messages(
+    backup_path: String,
+    offset: Option<usize>,
+    limit: Option<usize>,
+) -> Result<Vec<ParsedMessage>, String> {
+    let path = Path::new(&backup_path);
+    if !path.exists() {
+        return Err(format!("Backup file not found: {}", backup_path));
+    }
+    parser::load_messages(path, offset.unwrap_or(0), limit.unwrap_or(200))
+}
+
+#[tauri::command]
+pub fn migrate_backups_cmd(
+    db: State<'_, Arc<Database>>,
+    old_dir: String,
+    new_dir: String,
+) -> Result<u32, String> {
+    backup::migrate_backups(&db, &old_dir, &new_dir)
 }
 
 #[tauri::command]

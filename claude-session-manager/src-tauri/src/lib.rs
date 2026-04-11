@@ -16,6 +16,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(database)
         .invoke_handler(tauri::generate_handler![
             commands::projects::list_projects,
@@ -35,6 +36,8 @@ pub fn run() {
             commands::backups::restore_session_backup,
             commands::backups::list_backups,
             commands::backups::delete_backup,
+            commands::backups::get_backup_messages,
+            commands::backups::migrate_backups_cmd,
             commands::backups::get_backup_config_cmd,
             commands::backups::set_backup_config_cmd,
         ])

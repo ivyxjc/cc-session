@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toggleFavorite } from "../../lib/tauri";
+import { toggleFavorite, backupSession } from "../../lib/tauri";
 
 export function FavoriteButton({
   sessionId,
@@ -17,6 +17,10 @@ export function FavoriteButton({
     const result = await toggleFavorite(sessionId);
     setFavorited(result);
     onToggle?.(result);
+    // Auto-backup when favorited
+    if (result) {
+      backupSession(sessionId).catch(console.error);
+    }
   };
 
   return (

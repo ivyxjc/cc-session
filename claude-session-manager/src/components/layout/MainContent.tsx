@@ -5,6 +5,7 @@ import { SessionList } from "../session/SessionList";
 import { ConversationView } from "../session/ConversationView";
 import { BackupManager } from "../backup/BackupManager";
 import { SearchResults } from "../search/SearchResults";
+import { SettingsPage } from "../settings/SettingsPage";
 
 export function MainContent() {
   const { view } = useAppStore();
@@ -25,7 +26,7 @@ export function MainContent() {
     case "search":
       return <SearchResults />;
     case "settings":
-      return <div className="p-6 text-zinc-500">Settings — coming soon</div>;
+      return <SettingsPage />;
     default:
       return <ProjectList />;
   }

@@ -70,6 +70,12 @@ export const listBackups = (sessionId?: number) =>
 export const deleteBackup = (backupId: number) =>
   invoke<void>("delete_backup", { backupId });
 
+export const getBackupMessages = (backupPath: string, offset = 0, limit = 200) =>
+  invoke<ParsedMessage[]>("get_backup_messages", { backupPath, offset, limit });
+
+export const migrateBackups = (oldDir: string, newDir: string) =>
+  invoke<number>("migrate_backups_cmd", { oldDir, newDir });
+
 export const getBackupConfig = () =>
   invoke<BackupConfig>("get_backup_config_cmd");
 

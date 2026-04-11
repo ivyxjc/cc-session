@@ -13,8 +13,20 @@ export function SessionCard({ session }: { session: SessionSummary }) {
       className="w-full text-left p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600 transition-colors"
     >
       <div className="flex items-start justify-between">
-        <div className="font-medium truncate flex-1">
-          {session.slug || session.sessionId.slice(0, 8)}
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <span className="font-medium truncate">
+            {session.slug || session.sessionId.slice(0, 8)}
+          </span>
+          <span
+            onClick={(e) => {
+              e.stopPropagation();
+              navigator.clipboard.writeText(session.sessionId);
+            }}
+            title="Click to copy session ID"
+            className="text-xs text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 cursor-pointer font-mono shrink-0"
+          >
+            {session.sessionId.slice(0, 8)}
+          </span>
         </div>
         <div className="flex items-center gap-2 ml-2 shrink-0">
           <span className="text-xs text-zinc-400">{formatRelativeTime(session.lastActive)}</span>

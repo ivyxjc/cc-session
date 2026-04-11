@@ -27,4 +27,5 @@ chrono = { version = "0.4", features = ["serde"] }
 dirs = "6.0"
 zstd = "0.13"
 walkdir = "2"
+tauri-plugin-dialog = "2.7.0"
 
