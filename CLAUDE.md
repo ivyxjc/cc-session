@@ -1,0 +1,1 @@
+In this project, you may proactively perform GIT operations.

@@ -1,0 +1,22 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@plugin "@tailwindcss/typography";
+
+/* Override prose pre styles — we control code block styling via CodeBlock component */
+.prose pre {
+  background-color: var(--color-zinc-100) !important;
+  color: var(--color-zinc-800) !important;
+  border: 1px solid var(--color-zinc-200);
+  padding: 0 !important;
+}
+.dark .prose pre {
+  background-color: var(--color-zinc-900) !important;
+  color: var(--color-zinc-200) !important;
+  border-color: var(--color-zinc-700);
+}
+.prose code::before,
+.prose code::after {
+  content: none !important;
+}
