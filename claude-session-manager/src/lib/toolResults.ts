@@ -15,11 +15,11 @@ export function buildToolResultsMap(messages: ParsedMessage[]): Map<string, Tool
   for (const msg of messages) {
     if (msg.type !== "user") continue;
     for (const block of msg.content) {
-      if (block.type === "tool_result" && block.toolUseId) {
+      if (block.type === "tool_result" && block.tool_use_id) {
         const content = extractToolResultContent(block);
-        map.set(block.toolUseId, {
+        map.set(block.tool_use_id, {
           content,
-          isError: block.isError ?? false,
+          isError: block.is_error ?? false,
         });
       }
     }

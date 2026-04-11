@@ -126,10 +126,10 @@ export interface ContentBlock {
   id?: string;
   name?: string;
   input?: Record<string, unknown>;
-  // tool_result
-  toolUseId?: string;
+  // tool_result — field names match Rust snake_case serialization
+  tool_use_id?: string;
   content?: unknown;
-  isError?: boolean;
+  is_error?: boolean;
   // image — field names match Rust snake_case serialization
   source?: {
     type: string;

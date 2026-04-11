@@ -18,9 +18,9 @@ function useIncrementalToolResults(messages: ParsedMessage[]) {
       const msg = messages[i];
       if (msg.type !== "user") continue;
       for (const block of msg.content) {
-        if (block.type === "tool_result" && block.toolUseId) {
+        if (block.type === "tool_result" && block.tool_use_id) {
           const content = extractToolResultContent(block);
-          mapRef.current.set(block.toolUseId, { content, isError: block.isError ?? false });
+          mapRef.current.set(block.tool_use_id, { content, isError: block.is_error ?? false });
         }
       }
     }
