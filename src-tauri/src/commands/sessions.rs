@@ -13,6 +13,7 @@ pub fn list_sessions(
     project_id: Option<i64>,
     tag_id: Option<i64>,
     favorited: Option<bool>,
+    show_hidden: Option<bool>,
     sort_by: Option<String>,
 ) -> Result<Vec<SessionSummary>, String> {
     let conn = db.conn();
@@ -25,11 +26,30 @@ pub fn list_sessions(
         param_values.push(Box::new(pid));
     }
     if let Some(true) = favorited {
-        conditions.push("f.id IS NOT NULL".to_string());
+        conditions.push("s.is_favorited = 1".to_string());
     }
     if let Some(tid) = tag_id {
         conditions.push(format!("st.tag_id = ?{}", param_values.len() + 1));
         param_values.push(Box::new(tid));
+    }
+    // Hide hidden sessions unless explicitly requested
+    if !show_hidden.unwrap_or(false) {
+        conditions.push("s.is_hidden = 0".to_string());
+
+        // Auto-hide small sessions if configured
+        let auto_hide: Option<String> = conn.query_row(
+            "SELECT value FROM app_config WHERE key = 'auto_hide_config'",
+            [],
+            |row| row.get(0),
+        ).ok();
+        if let Some(json) = auto_hide {
+            if let Ok(cfg) = serde_json::from_str::<serde_json::Value>(&json) {
+                if cfg.get("enabled").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let min_msgs = cfg.get("minMessageCount").and_then(|v| v.as_i64()).unwrap_or(3);
+                    conditions.push(format!("(s.user_msg_count >= {} OR s.is_favorited = 1)", min_msgs));
+                }
+            }
+        }
     }
 
     let where_clause = if conditions.is_empty() {
@@ -39,10 +59,10 @@ pub fn list_sessions(
     };
 
     let order = match sort_by.as_deref() {
-        Some("size") => "s.file_size DESC",
-        Some("messages") => "s.message_count DESC",
-        Some("tokens") => "(s.total_input_tokens + s.total_output_tokens + s.total_cache_creation_tokens + s.total_cache_read_tokens) DESC",
-        _ => "s.last_active DESC NULLS LAST",
+        Some("size") => "s.is_favorited DESC, s.file_size DESC",
+        Some("messages") => "s.is_favorited DESC, s.message_count DESC",
+        Some("tokens") => "s.is_favorited DESC, (s.total_input_tokens + s.total_output_tokens + s.total_cache_creation_tokens + s.total_cache_read_tokens) DESC",
+        _ => "s.is_favorited DESC, s.last_active DESC NULLS LAST",
     };
 
     let query = format!(
@@ -53,12 +73,9 @@ pub fn list_sessions(
                 s.user_msg_count, s.assistant_msg_count,
                 s.total_input_tokens, s.total_output_tokens,
                 s.total_cache_creation_tokens, s.total_cache_read_tokens,
-                s.file_size,
-                CASE WHEN f.id IS NOT NULL THEN 1 ELSE 0 END as is_favorited,
-                s.is_backed_up
+                s.file_size, s.is_favorited, s.is_hidden, s.is_backed_up
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
-         LEFT JOIN favorites f ON s.id = f.session_id
          LEFT JOIN session_tags st ON s.id = st.session_id
          {} ORDER BY {}",
         where_clause, order
@@ -69,7 +86,7 @@ pub fn list_sessions(
 
     let session_rows: Vec<(i64, String, i64, String, String, Option<String>, Option<String>,
         Option<String>, Option<String>, Option<i64>, Option<i64>,
-        i64, i64, i64, i64, i64, i64, i64, i64, bool, bool)> = stmt.query_map(
+        i64, i64, i64, i64, i64, i64, i64, i64, bool, bool, bool)> = stmt.query_map(
         params_ref.as_slice(),
         |row| {
             Ok((
@@ -78,7 +95,7 @@ pub fn list_sessions(
                 row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?,
                 row.get(12)?, row.get(13)?, row.get(14)?, row.get(15)?,
                 row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?,
-                row.get(20)?,
+                row.get(20)?, row.get(21)?,
             ))
         },
     )
@@ -110,7 +127,8 @@ pub fn list_sessions(
             total_cache_read_tokens: row.17,
             file_size: row.18,
             is_favorited: row.19,
-            is_backed_up: row.20,
+            is_hidden: row.20,
+            is_backed_up: row.21,
             tags,
         });
     }

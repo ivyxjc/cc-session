@@ -5,6 +5,7 @@ export interface Project {
   displayName: string;
   sessionCount: number;
   lastActive: number | null;
+  isStarred: boolean;
 }
 
 export interface SessionSummary {
@@ -28,6 +29,7 @@ export interface SessionSummary {
   totalCacheReadTokens: number;
   fileSize: number;
   isFavorited: boolean;
+  isHidden: boolean;
   isBackedUp: boolean;
   tags: Tag[];
 }
@@ -89,10 +91,13 @@ export interface LiveSession {
   projectName: string | null;
   gitBranch: string | null;
   messageCount: number | null;
+  userMsgCount: number | null;
   totalInputTokens: number | null;
   totalOutputTokens: number | null;
   totalCacheCreationTokens: number | null;
   totalCacheReadTokens: number | null;
+  version: string | null;
+  fileSize: number | null;
   lastMessagePreview: string | null;
   activeSubagentCount: number | null;
 }
@@ -105,6 +110,29 @@ export interface SessionMessagesUpdate {
 export interface LatestMessagesResult {
   messages: ParsedMessage[];
   totalCount: number;
+}
+
+export interface AutoHideConfig {
+  enabled: boolean;
+  minMessageCount: number;
+}
+
+export interface MultiplexerConfig {
+  multiplexer: string; // "none" | "zellij" | "tmux"
+}
+
+export interface MultiplexerSession {
+  name: string;
+  status: string;
+  cwd: string | null;
+  matchesPath: boolean;
+  attachCmd: string;
+}
+
+export interface MultiplexerDetectionResult {
+  multiplexer: string;
+  sessions: MultiplexerSession[];
+  newSessionCmd: string;
 }
 
 export interface ScanResult {

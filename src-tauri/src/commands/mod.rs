@@ -7,3 +7,5 @@ pub mod backups;
 pub mod terminal;
 pub mod monitor;
 pub mod images;
+pub mod multiplexer;
+pub mod settings_io;

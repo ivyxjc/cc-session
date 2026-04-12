@@ -88,7 +88,17 @@ pub fn parse_session_metadata(path: &Path) -> Result<SessionParseResult, String>
         match raw.msg_type.as_str() {
             "user" => {
                 result.message_count += 1;
-                result.user_msg_count += 1;
+                // Only count as real user message if content has non-tool_result blocks
+                let is_real_user_msg = raw.message.as_ref()
+                    .and_then(|m| m.get("content"))
+                    .and_then(|c| c.as_array())
+                    .map(|arr| arr.iter().any(|b| {
+                        b.get("type").and_then(|t| t.as_str()) != Some("tool_result")
+                    }))
+                    .unwrap_or(true); // string content = real user message
+                if is_real_user_msg {
+                    result.user_msg_count += 1;
+                }
             }
             "assistant" => {
                 result.message_count += 1;

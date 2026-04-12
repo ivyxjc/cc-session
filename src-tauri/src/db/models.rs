@@ -9,6 +9,7 @@ pub struct Project {
     pub display_name: String,
     pub session_count: i64,
     pub last_active: Option<i64>,
+    pub is_starred: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +35,7 @@ pub struct SessionSummary {
     pub total_cache_read_tokens: i64,
     pub file_size: i64,
     pub is_favorited: bool,
+    pub is_hidden: bool,
     pub is_backed_up: bool,
     pub tags: Vec<Tag>,
 }

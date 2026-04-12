@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useFilterStore } from "../../stores/filterStore";
 import { useLiveStore } from "../../stores/liveStore";
-import { listProjects, listTags, getLiveSessions } from "../../lib/tauri";
+import { listProjects, listTags, getLiveSessions, toggleStarProject, refreshIndex } from "../../lib/tauri";
 import type { Project, Tag } from "../../lib/types";
+import { Tooltip } from "../common/Tooltip";
 
 function longestCommonPrefix(paths: string[]): string {
   if (paths.length <= 1) return "";
@@ -33,6 +34,8 @@ export function Sidebar() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
+  const [refreshing, setRefreshing] = useState(false);
+  const triggerRefresh = useAppStore((s) => s.triggerRefresh);
 
   useEffect(() => {
     listProjects("time").then(setProjects).catch(console.error);
@@ -64,8 +67,11 @@ export function Sidebar() {
         commonPrefix: longestCommonPrefix(projs.map((p) => p.originalPath)),
       });
     }
-    // Sort by most recent activity
+    // Sort: starred first, then by most recent activity
     groups.sort((a, b) => {
+      const aStarred = a.projects.some((p) => p.isStarred) ? 1 : 0;
+      const bStarred = b.projects.some((p) => p.isStarred) ? 1 : 0;
+      if (aStarred !== bStarred) return bStarred - aStarred;
       const aMax = Math.max(...a.projects.map((p) => p.lastActive || 0));
       const bMax = Math.max(...b.projects.map((p) => p.lastActive || 0));
       return bMax - aMax;
@@ -80,6 +86,14 @@ export function Sidebar() {
       else next.add(name);
       return next;
     });
+  };
+
+  const handleToggleStar = async (e: React.MouseEvent, group: ProjectGroup) => {
+    e.stopPropagation();
+    for (const p of group.projects) {
+      await toggleStarProject(p.id);
+    }
+    listProjects("time").then(setProjects).catch(console.error);
   };
 
   const handleProjectGroupClick = (group: ProjectGroup) => {
@@ -191,6 +205,15 @@ export function Sidebar() {
                     <span className="text-xs text-zinc-400 w-3 shrink-0">{isExpanded ? "▼" : "▶"}</span>
                   )}
                   <span className="truncate flex-1">{group.displayName}</span>
+                  <span
+                    onClick={(e) => handleToggleStar(e, group)}
+                    className={`text-xs shrink-0 cursor-pointer hover:text-yellow-500 ${
+                      group.projects.some((p) => p.isStarred) ? "text-yellow-500" : "text-zinc-300 dark:text-zinc-600"
+                    }`}
+                    title={group.projects.some((p) => p.isStarred) ? "Unstar project" : "Star project"}
+                  >
+                    ★
+                  </span>
                   <span className="text-zinc-400 text-xs shrink-0">
                     {isMulti && `${group.projects.length}× `}{group.totalSessions}
                   </span>
@@ -209,17 +232,17 @@ export function Sidebar() {
                         ? p.originalPath.substring(group.commonPrefix.length)
                         : p.originalPath;
                       return (
-                        <button
-                          key={p.id}
-                          onClick={() => selectProject(p.id)}
-                          className={`w-full text-left px-3 py-1 rounded text-xs truncate ${
-                            selectedProjectId === p.id ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                          }`}
-                          title={p.originalPath}
-                        >
-                          <span className="text-zinc-500">{display}</span>
-                          <span className="text-zinc-400 ml-1">{p.sessionCount}</span>
-                        </button>
+                        <Tooltip key={p.id} text={p.originalPath}>
+                          <button
+                            onClick={() => selectProject(p.id)}
+                            className={`w-full text-left px-3 py-1 rounded text-xs truncate ${
+                              selectedProjectId === p.id ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                            }`}
+                          >
+                            <span className="text-zinc-500">{display}</span>
+                            <span className="text-zinc-400 ml-1">{p.sessionCount}</span>
+                          </button>
+                        </Tooltip>
                       );
                     })}
                   </div>
@@ -243,6 +266,23 @@ export function Sidebar() {
           className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "settings" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
         >
           Settings
+        </button>
+        <button
+          onClick={async () => {
+            setRefreshing(true);
+            try {
+              await refreshIndex();
+              listProjects("time").then(setProjects).catch(console.error);
+              triggerRefresh();
+            } catch (e) {
+              console.error(e);
+            }
+            setRefreshing(false);
+          }}
+          disabled={refreshing}
+          className="w-full text-left px-3 py-1.5 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing..." : "Refresh Index"}
         </button>
       </div>
     </aside>

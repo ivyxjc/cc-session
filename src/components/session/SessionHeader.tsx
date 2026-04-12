@@ -61,10 +61,8 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
         <OpenTerminalButton path={session.projectPath} />
         <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
       </div>
-      <h1 className="text-lg font-semibold mt-2">
-        {session.slug || session.sessionId.slice(0, 8)}
-      </h1>
-      <CopyText text={session.sessionId} />
+      <h1 className="text-lg font-semibold mt-2">{session.projectName}</h1>
+      <CopyText text={session.sessionId} className="text-sm text-zinc-400 font-mono" />
       <div className="text-sm text-zinc-500 mt-0.5">
         {session.projectName} &middot; {session.gitBranch || "\u2014"} &middot; {session.version || "\u2014"} &middot; {session.permissionMode || "default"}
       </div>

@@ -1,13 +1,15 @@
 import { useState, useEffect } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
-import { getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand } from "../../lib/tauri";
+import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand, getMultiplexerConfig, setMultiplexerConfig, getAutoHideConfig, setAutoHideConfig, exportSettingsToFile, importSettingsFromFile } from "../../lib/tauri";
 import { setLocale as setGlobalLocale } from "../../lib/format";
-import type { BackupConfig, TerminalConfig } from "../../lib/types";
+import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig } from "../../lib/types";
 
 export function SettingsPage() {
   const [config, setConfig] = useState<BackupConfig | null>(null);
   const [originalDir, setOriginalDir] = useState<string>("");
   const [termConfig, setTermConfig] = useState<TerminalConfig | null>(null);
+  const [muxConfig, setMuxConfig] = useState<MultiplexerConfig | null>(null);
+  const [autoHideConfig, setAutoHideConfigState] = useState<AutoHideConfig | null>(null);
   const [locale, setLocale] = useState<string>(localStorage.getItem("locale") || "");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -19,9 +21,11 @@ export function SettingsPage() {
       setOriginalDir(c.backupDir);
     });
     getTerminalConfig().then(setTermConfig);
+    getMultiplexerConfig().then(setMuxConfig);
+    getAutoHideConfig().then(setAutoHideConfigState);
   }, []);
 
-  const save = async () => {
+  const handleSave = async () => {
     if (!config) return;
     setSaving(true);
 
@@ -39,6 +43,8 @@ export function SettingsPage() {
 
     await setBackupConfig(config);
     if (termConfig) await setTerminalConfig(termConfig);
+    if (muxConfig) await setMultiplexerConfig(muxConfig);
+    if (autoHideConfig) await setAutoHideConfig(autoHideConfig);
 
     // Save locale
     if (locale) {
@@ -135,6 +141,34 @@ export function SettingsPage() {
         </div>
 
       </section>
+
+      {/* Session Visibility */}
+      {autoHideConfig && (
+        <section className="space-y-4 max-w-lg mt-8">
+          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Session Visibility</h2>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={autoHideConfig.enabled}
+              onChange={(e) => setAutoHideConfigState({ ...autoHideConfig, enabled: e.target.checked })}
+            />
+            <span className="text-sm">Auto-hide small sessions</span>
+          </label>
+          {autoHideConfig.enabled && (
+            <div>
+              <label className="text-sm font-medium">Minimum message count</label>
+              <input
+                type="number"
+                value={autoHideConfig.minMessageCount}
+                onChange={(e) => setAutoHideConfigState({ ...autoHideConfig, minMessageCount: parseInt(e.target.value) || 3 })}
+                className="w-20 mt-1 ml-2 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+                min={1}
+              />
+              <p className="text-xs text-zinc-400 mt-1">Sessions with fewer messages will be hidden (starred sessions are always shown).</p>
+            </div>
+          )}
+        </section>
+      )}
 
       {/* Display Settings */}
       <section className="space-y-4 max-w-lg mt-8">
@@ -247,14 +281,72 @@ export function SettingsPage() {
         </section>
       )}
 
-      {/* Save */}
-      <div className="mt-8 max-w-lg">
+      {/* Multiplexer Integration */}
+      {muxConfig && (
+        <section className="space-y-4 max-w-lg mt-8">
+          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Multiplexer</h2>
+          <div>
+            <label className="text-sm font-medium">Terminal multiplexer</label>
+            <select
+              value={muxConfig.multiplexer}
+              onChange={(e) => setMuxConfig({ ...muxConfig, multiplexer: e.target.value })}
+              className="w-full mt-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            >
+              <option value="none">None</option>
+              <option value="zellij">Zellij</option>
+              <option value="tmux">tmux</option>
+            </select>
+            <p className="text-xs text-zinc-400 mt-1">
+              When enabled, a multiplexer button appears on session cards. Click it to see attach commands for existing sessions.
+            </p>
+          </div>
+        </section>
+      )}
+
+      {/* Save + Import/Export */}
+      <div className="mt-8 max-w-lg flex items-center gap-3">
         <button
-          onClick={save}
+          onClick={handleSave}
           disabled={saving}
           className="px-4 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
         >
           {migrating ? "Migrating backups..." : saving ? "Saving..." : saved ? "Saved!" : "Save"}
+        </button>
+        <button
+          onClick={async () => {
+            const filePath = await saveDialog({
+              defaultPath: "claude-session-manager-settings.json",
+              filters: [{ name: "JSON", extensions: ["json"] }],
+            });
+            if (filePath) {
+              await exportSettingsToFile(filePath);
+            }
+          }}
+          className="px-4 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        >
+          Export
+        </button>
+        <button
+          onClick={async () => {
+            const filePath = await open({
+              multiple: false,
+              filters: [{ name: "JSON", extensions: ["json"] }],
+            });
+            if (filePath) {
+              try {
+                await importSettingsFromFile(filePath as string);
+                getBackupConfig().then((c) => { setConfig(c); setOriginalDir(c.backupDir); });
+                getTerminalConfig().then(setTermConfig);
+                getMultiplexerConfig().then(setMuxConfig);
+                getAutoHideConfig().then(setAutoHideConfigState);
+              } catch (e) {
+                alert(`Import failed: ${e}`);
+              }
+            }
+          }}
+          className="px-4 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+        >
+          Import
         </button>
       </div>
     </div>

@@ -1,12 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { listen } from "@tauri-apps/api/event";
-import { getLatestMessages, getMessages, getSubagents, watchSession, unwatchSession } from "../../lib/tauri";
+import { getLatestMessages, getMessages, getSubagents, watchSession, unwatchSession, listSessions } from "../../lib/tauri";
 import type { ParsedMessage, SubagentSummary, SessionMessagesUpdate } from "../../lib/types";
 import { useLiveStore } from "../../stores/liveStore";
 import { useAppStore } from "../../stores/appStore";
+import { formatTokens, formatFileSize } from "../../lib/format";
+import { backupSession } from "../../lib/tauri";
 import { MessageBubble } from "../message/MessageBubble";
 import { SubagentView } from "../message/SubagentView";
+import { CopyText } from "../common/CopyText";
+import { FavoriteButton } from "../common/FavoriteButton";
+import { OpenTerminalButton } from "../common/OpenTerminalButton";
+import { MultiplexerButton } from "../common/MultiplexerButton";
+import { TagManager } from "../common/TagManager";
+import { TagBadge } from "../common/TagBadge";
 import { LiveStatusBadge } from "./LiveStatusBadge";
 import { RunningTimer } from "./RunningTimer";
 import type { ToolResult } from "../../lib/toolResults";
@@ -89,6 +97,9 @@ export function LiveConversationView() {
   const [messages, setMessages] = useState<ParsedMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showTagManager, setShowTagManager] = useState(false);
+  const [backingUp, setBackingUp] = useState(false);
+  const [tags, setTags] = useState<{ id: number; name: string; color: string }[]>([]);
 
   const [subagentsExpanded, setSubagentsExpanded] = useState(false);
 
@@ -122,10 +133,15 @@ export function LiveConversationView() {
     Promise.all([
       getLatestMessages(dbSessionId, INITIAL_LOAD),
       getSubagents(dbSessionId),
-    ]).then(([result, subs]) => {
+      listSessions({ projectId: undefined }).then((sessions) => {
+        const s = sessions.find((s) => s.id === dbSessionId);
+        return s?.tags || [];
+      }),
+    ]).then(([result, subs, sessionTags]) => {
       const startOffset = result.totalCount - result.messages.length;
       setMessages(result.messages);
       setSubagents(subs);
+      setTags(sessionTags);
       setFirstItemIndex(startOffset);
       earliestOffsetRef.current = startOffset;
       hasOlderRef.current = startOffset > 0;
@@ -217,32 +233,84 @@ export function LiveConversationView() {
 
   return (
     <div className="h-full flex flex-col">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-800 flex items-center gap-3">
-        <button
-          onClick={handleBack}
-          className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-        >
-          &larr; Live
-        </button>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            {liveSession && <LiveStatusBadge isAlive={liveSession.isAlive} />}
-            <span className="font-medium truncate">
-              {liveSession?.slug || watchedSessionId.slice(0, 8)}
-            </span>
-          </div>
-          <div className="text-xs text-zinc-400 mt-0.5">
-            {liveSession?.projectName}
-            {liveSession?.gitBranch && <> &middot; {liveSession.gitBranch}</>}
-            {liveSession && liveSession.isAlive && (
-              <> &middot; <RunningTimer startedAt={liveSession.startedAt} /></>
-            )}
-          </div>
+      {/* Header — matches SessionHeader layout */}
+      <div className="border-b border-zinc-200 dark:border-zinc-800 p-4">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleBack}
+            className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            &larr; Live
+          </button>
+          <div className="flex-1" />
+          {liveSession && <LiveStatusBadge isAlive={liveSession.isAlive} />}
+          {liveSession?.isAlive && (
+            <span className="text-xs text-zinc-400"><RunningTimer startedAt={liveSession.startedAt} /></span>
+          )}
+          {liveSession?.dbSessionId && (
+            <button
+              onClick={async () => {
+                setBackingUp(true);
+                try { await backupSession(liveSession.dbSessionId!); } finally { setBackingUp(false); }
+              }}
+              disabled={backingUp}
+              className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {backingUp ? "Backing up..." : "Backup"}
+            </button>
+          )}
+          {liveSession?.dbSessionId && (
+            <div className="relative">
+              <button
+                onClick={() => setShowTagManager(!showTagManager)}
+                className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                Tags
+              </button>
+              {showTagManager && (
+                <div className="absolute right-0 top-8 z-10 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-lg shadow-lg">
+                  <TagManager
+                    sessionId={liveSession.dbSessionId}
+                    currentTags={tags}
+                    onUpdate={() => {
+                      setShowTagManager(false);
+                      // Refresh tags
+                      listSessions({ projectId: undefined }).then((sessions) => {
+                        const s = sessions.find((s) => s.id === liveSession.dbSessionId);
+                        if (s) setTags(s.tags);
+                      });
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+          <OpenTerminalButton path={liveSession?.cwd || ""} />
+          <MultiplexerButton path={liveSession?.cwd || ""} />
+          {liveSession?.dbSessionId && (
+            <FavoriteButton sessionId={liveSession.dbSessionId} initialFavorited={false} />
+          )}
         </div>
-        <div className="text-xs text-zinc-400 shrink-0">
-          {messages.length} messages
+        <h1 className="text-lg font-semibold mt-2">
+          {liveSession?.projectName || liveSession?.cwd.split("/").pop() || "\u2014"}
+        </h1>
+        <CopyText text={watchedSessionId} className="text-sm text-zinc-400 font-mono" />
+        <div className="text-sm text-zinc-500 mt-0.5">
+          {liveSession?.projectName || "\u2014"} &middot; {liveSession?.gitBranch || "\u2014"} &middot; {liveSession?.version || "\u2014"} &middot; PID {liveSession?.pid}
         </div>
+        <div className="text-xs text-zinc-400 mt-1">
+          {messages.length} msgs &middot; total {formatTokens((liveSession?.totalInputTokens || 0) + (liveSession?.totalOutputTokens || 0) + (liveSession?.totalCacheCreationTokens || 0) + (liveSession?.totalCacheReadTokens || 0))}
+          {" "}&middot; in {formatTokens(liveSession?.totalInputTokens || 0)}
+          {" "}&middot; out {formatTokens(liveSession?.totalOutputTokens || 0)}
+          {" "}&middot; cache R {formatTokens(liveSession?.totalCacheReadTokens || 0)}
+          {" "}&middot; cache W {formatTokens(liveSession?.totalCacheCreationTokens || 0)}
+          {liveSession?.fileSize != null && <> &middot; {formatFileSize(liveSession.fileSize)}</>}
+        </div>
+        {tags.length > 0 && (
+          <div className="flex gap-1 mt-2">
+            {tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)}
+          </div>
+        )}
       </div>
 
       {/* Virtualized message list */}

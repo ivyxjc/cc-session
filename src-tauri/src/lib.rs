@@ -32,6 +32,10 @@ pub fn run() {
             commands::sessions::get_subagent_messages,
             commands::scan::refresh_index,
             commands::favorites::toggle_favorite,
+            commands::favorites::toggle_hide_session,
+            commands::favorites::get_auto_hide_config,
+            commands::favorites::set_auto_hide_config,
+            commands::projects::toggle_star_project,
             commands::tags::create_tag,
             commands::tags::delete_tag,
             commands::tags::list_tags,
@@ -56,6 +60,13 @@ pub fn run() {
             commands::monitor::watch_session,
             commands::monitor::unwatch_session,
             commands::images::read_image_file,
+            commands::multiplexer::get_multiplexer_config,
+            commands::multiplexer::set_multiplexer_config,
+            commands::multiplexer::detect_multiplexer_sessions,
+            commands::settings_io::export_settings,
+            commands::settings_io::import_settings,
+            commands::settings_io::export_settings_to_file,
+            commands::settings_io::import_settings_from_file,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

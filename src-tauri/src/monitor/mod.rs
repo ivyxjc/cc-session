@@ -31,10 +31,13 @@ pub struct LiveSession {
     pub project_name: Option<String>,
     pub git_branch: Option<String>,
     pub message_count: Option<i64>,
+    pub user_msg_count: Option<i64>,
     pub total_input_tokens: Option<i64>,
     pub total_output_tokens: Option<i64>,
     pub total_cache_creation_tokens: Option<i64>,
     pub total_cache_read_tokens: Option<i64>,
+    pub version: Option<String>,
+    pub file_size: Option<i64>,
     pub last_message_preview: Option<String>,
     pub active_subagent_count: Option<i64>,
 }
@@ -471,8 +474,9 @@ fn scan_session_registry(db: &Database) -> Vec<LiveSession> {
         let enrichment = conn
             .query_row(
                 "SELECT s.id, s.slug, p.display_name, s.git_branch,
-                        s.message_count, s.total_input_tokens, s.total_output_tokens,
-                        s.total_cache_creation_tokens, s.total_cache_read_tokens
+                        s.message_count, s.user_msg_count, s.total_input_tokens, s.total_output_tokens,
+                        s.total_cache_creation_tokens, s.total_cache_read_tokens,
+                        s.version, s.file_size
                  FROM sessions s
                  JOIN projects p ON s.project_id = p.id
                  WHERE s.session_id = ?1",
@@ -488,6 +492,9 @@ fn scan_session_registry(db: &Database) -> Vec<LiveSession> {
                         row.get::<_, i64>(6)?,
                         row.get::<_, i64>(7)?,
                         row.get::<_, i64>(8)?,
+                        row.get::<_, i64>(9)?,
+                        row.get::<_, Option<String>>(10)?,
+                        row.get::<_, i64>(11)?,
                     ))
                 },
             )
@@ -516,10 +523,13 @@ fn scan_session_registry(db: &Database) -> Vec<LiveSession> {
             project_name: enrichment.as_ref().map(|e| e.2.clone()),
             git_branch: enrichment.as_ref().and_then(|e| e.3.clone()),
             message_count: enrichment.as_ref().map(|e| e.4),
-            total_input_tokens: enrichment.as_ref().map(|e| e.5),
-            total_output_tokens: enrichment.as_ref().map(|e| e.6),
-            total_cache_creation_tokens: enrichment.as_ref().map(|e| e.7),
-            total_cache_read_tokens: enrichment.as_ref().map(|e| e.8),
+            user_msg_count: enrichment.as_ref().map(|e| e.5),
+            total_input_tokens: enrichment.as_ref().map(|e| e.6),
+            total_output_tokens: enrichment.as_ref().map(|e| e.7),
+            total_cache_creation_tokens: enrichment.as_ref().map(|e| e.8),
+            total_cache_read_tokens: enrichment.as_ref().map(|e| e.9),
+            version: enrichment.as_ref().and_then(|e| e.10.clone()),
+            file_size: enrichment.as_ref().map(|e| e.11),
             last_message_preview: None,
             active_subagent_count: subagent_count,
         });

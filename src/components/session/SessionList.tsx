@@ -6,10 +6,11 @@ import { useFilterStore } from "../../stores/filterStore";
 import { SessionCard } from "./SessionCard";
 
 export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
-  const { selectedProjectId } = useAppStore();
+  const { selectedProjectId, refreshCounter } = useAppStore();
   const { sortBy, selectedTagId } = useFilterStore();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showHidden, setShowHidden] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -17,21 +18,45 @@ export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
       projectId: selectedProjectId ?? undefined,
       tagId: selectedTagId ?? undefined,
       favorited: favoritesOnly || undefined,
+      showHidden,
       sortBy,
     })
       .then(setSessions)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [selectedProjectId, selectedTagId, favoritesOnly, sortBy]);
+  }, [selectedProjectId, selectedTagId, favoritesOnly, sortBy, refreshCounter, showHidden]);
 
   const title = favoritesOnly ? "Favorites" : "Sessions";
 
   const { setSortBy } = useFilterStore();
 
+  const reload = () => {
+    listSessions({
+      projectId: selectedProjectId ?? undefined,
+      tagId: selectedTagId ?? undefined,
+      favorited: favoritesOnly || undefined,
+      showHidden,
+      sortBy,
+    }).then(setSessions).catch(console.error);
+  };
+
   return (
     <div className="p-6 h-full overflow-y-auto">
       <div className="flex items-center justify-between mb-4">
-        <h1 className="text-xl font-semibold">{title}</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-xl font-semibold">{title}</h1>
+          {!favoritesOnly && (
+            <label className="flex items-center gap-1.5 text-xs text-zinc-500 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={showHidden}
+                onChange={(e) => setShowHidden(e.target.checked)}
+                className="rounded"
+              />
+              Show hidden
+            </label>
+          )}
+        </div>
         <select
           value={sortBy}
           onChange={(e) => setSortBy(e.target.value)}
@@ -50,7 +75,12 @@ export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
       ) : (
         <div className="space-y-2">
           {sessions.map((s) => (
-            <SessionCard key={s.id} session={s} />
+            <SessionCard
+              key={s.id}
+              session={s}
+              showHidden={showHidden}
+              onHide={reload}
+            />
           ))}
         </div>
       )}

@@ -3,6 +3,7 @@ import type {
   Project, SessionSummary, ParsedMessage, SubagentSummary,
   Tag, Backup, BackupConfig, TerminalConfig, ScanResult, LiveSession,
   LatestMessagesResult,
+  MultiplexerConfig, MultiplexerDetectionResult,
 } from "./types";
 
 // Safe invoke wrapper — returns empty/default when not in Tauri webview (e.g. browser dev)
@@ -23,6 +24,7 @@ export const listSessions = (params: {
   projectId?: number;
   tagId?: number;
   favorited?: boolean;
+  showHidden?: boolean;
   sortBy?: string;
 }) => invoke<SessionSummary[]>("list_sessions", params);
 
@@ -41,6 +43,18 @@ export const getSubagentMessages = (subagentId: number, offset = 0, limit = 50) 
 // Favorites
 export const toggleFavorite = (sessionId: number, note?: string) =>
   invoke<boolean>("toggle_favorite", { sessionId, note });
+
+export const toggleHideSession = (sessionId: number) =>
+  invoke<boolean>("toggle_hide_session", { sessionId });
+
+export const toggleStarProject = (projectId: number) =>
+  invoke<boolean>("toggle_star_project", { projectId });
+
+export const getAutoHideConfig = () =>
+  invoke<import("./types").AutoHideConfig>("get_auto_hide_config");
+
+export const setAutoHideConfig = (config: import("./types").AutoHideConfig) =>
+  invoke<void>("set_auto_hide_config", { config });
 
 // Tags
 export const createTag = (name: string, color: string) =>
@@ -98,6 +112,29 @@ export const openTerminal = (path: string, terminalName?: string) =>
 
 export const testTerminalCommand = (command: string) =>
   invoke<void>("test_terminal_command", { command });
+
+// Multiplexer
+export const getMultiplexerConfig = () =>
+  invoke<MultiplexerConfig>("get_multiplexer_config");
+
+export const setMultiplexerConfig = (config: MultiplexerConfig) =>
+  invoke<void>("set_multiplexer_config", { config });
+
+export const detectMultiplexerSessions = (path: string, multiplexer: string) =>
+  invoke<MultiplexerDetectionResult>("detect_multiplexer_sessions", { path, multiplexer });
+
+// Settings import/export
+export const exportSettings = () =>
+  invoke<string>("export_settings");
+
+export const importSettings = (json: string) =>
+  invoke<void>("import_settings", { json });
+
+export const exportSettingsToFile = (path: string) =>
+  invoke<void>("export_settings_to_file", { path });
+
+export const importSettingsFromFile = (path: string) =>
+  invoke<void>("import_settings_from_file", { path });
 
 // Images
 export const readImageFile = (path: string) =>
