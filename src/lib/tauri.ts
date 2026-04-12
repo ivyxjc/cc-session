@@ -136,6 +136,10 @@ export const exportSettingsToFile = (path: string) =>
 export const importSettingsFromFile = (path: string) =>
   invoke<void>("import_settings_from_file", { path });
 
+// Session copy
+export const copySessionToPath = (sessionId: number, targetPath: string) =>
+  invoke<string>("copy_session_to_path", { sessionId, targetPath });
+
 // Images
 export const readImageFile = (path: string) =>
   invoke<string>("read_image_file", { path });

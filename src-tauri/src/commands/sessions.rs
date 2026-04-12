@@ -73,7 +73,8 @@ pub fn list_sessions(
                 s.user_msg_count, s.assistant_msg_count,
                 s.total_input_tokens, s.total_output_tokens,
                 s.total_cache_creation_tokens, s.total_cache_read_tokens,
-                s.file_size, s.is_favorited, s.is_hidden, s.is_backed_up
+                s.file_size, s.is_favorited, s.is_hidden, s.is_backed_up,
+                s.copied_from_session_id, s.copied_at
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
          LEFT JOIN session_tags st ON s.id = st.session_id
@@ -86,7 +87,8 @@ pub fn list_sessions(
 
     let session_rows: Vec<(i64, String, i64, String, String, Option<String>, Option<String>,
         Option<String>, Option<String>, Option<i64>, Option<i64>,
-        i64, i64, i64, i64, i64, i64, i64, i64, bool, bool, bool)> = stmt.query_map(
+        i64, i64, i64, i64, i64, i64, i64, i64, bool, bool, bool,
+        Option<String>, Option<i64>)> = stmt.query_map(
         params_ref.as_slice(),
         |row| {
             Ok((
@@ -95,7 +97,7 @@ pub fn list_sessions(
                 row.get(8)?, row.get(9)?, row.get(10)?, row.get(11)?,
                 row.get(12)?, row.get(13)?, row.get(14)?, row.get(15)?,
                 row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?,
-                row.get(20)?, row.get(21)?,
+                row.get(20)?, row.get(21)?, row.get(22)?, row.get(23)?,
             ))
         },
     )
@@ -129,6 +131,8 @@ pub fn list_sessions(
             is_favorited: row.19,
             is_hidden: row.20,
             is_backed_up: row.21,
+            copied_from_session_id: row.22,
+            copied_at: row.23,
             tags,
         });
     }

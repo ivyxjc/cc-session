@@ -31,6 +31,8 @@ export interface SessionSummary {
   isFavorited: boolean;
   isHidden: boolean;
   isBackedUp: boolean;
+  copiedFromSessionId: string | null;
+  copiedAt: number | null;
   tags: Tag[];
 }
 

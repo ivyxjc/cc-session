@@ -37,6 +37,8 @@ pub struct SessionSummary {
     pub is_favorited: bool,
     pub is_hidden: bool,
     pub is_backed_up: bool,
+    pub copied_from_session_id: Option<String>,
+    pub copied_at: Option<i64>,
     pub tags: Vec<Tag>,
 }
 

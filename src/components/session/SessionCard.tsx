@@ -24,7 +24,7 @@ export function SessionCard({ session, onHide }: { session: SessionSummary; show
         </div>
         <div className="flex items-center gap-2 ml-2 shrink-0">
           <span className="text-xs text-zinc-400">{formatDateTime(session.lastActive)}</span>
-          <OpenTerminalButton path={session.projectPath} />
+          <OpenTerminalButton path={session.projectPath} sessionId={session.sessionId} />
           <MultiplexerButton path={session.projectPath} />
           <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
           <button

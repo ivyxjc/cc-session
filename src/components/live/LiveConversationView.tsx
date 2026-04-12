@@ -285,7 +285,7 @@ export function LiveConversationView() {
               )}
             </div>
           )}
-          <OpenTerminalButton path={liveSession?.cwd || ""} />
+          <OpenTerminalButton path={liveSession?.cwd || ""} sessionId={liveSession?.sessionId} />
           <MultiplexerButton path={liveSession?.cwd || ""} />
           {liveSession?.dbSessionId && (
             <FavoriteButton sessionId={liveSession.dbSessionId} initialFavorited={false} />

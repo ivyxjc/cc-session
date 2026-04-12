@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { openTerminal, getTerminalConfig } from "../../lib/tauri";
 import type { TerminalConfig } from "../../lib/types";
 
-export function OpenTerminalButton({ path }: { path: string }) {
+export function OpenTerminalButton({ path, sessionId }: { path: string; sessionId?: string }) {
   const [config, setConfig] = useState<TerminalConfig | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -12,6 +12,9 @@ export function OpenTerminalButton({ path }: { path: string }) {
 
   const handleOpen = (e: React.MouseEvent, terminalName?: string) => {
     e.stopPropagation();
+    if (sessionId) {
+      navigator.clipboard.writeText(`claude --resume ${sessionId}`).catch(console.error);
+    }
     openTerminal(path, terminalName).catch((err) => {
       console.error("open_terminal failed:", err);
       alert(`Failed to open terminal: ${err}`);

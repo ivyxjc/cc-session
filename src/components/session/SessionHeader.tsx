@@ -1,7 +1,8 @@
 import { useState } from "react";
 import type { SessionSummary } from "../../lib/types";
 import { formatDateTime, formatTokens, formatFileSize } from "../../lib/format";
-import { backupSession } from "../../lib/tauri";
+import { backupSession, copySessionToPath } from "../../lib/tauri";
+import { open } from "@tauri-apps/plugin-dialog";
 import { CopyText } from "../common/CopyText";
 import { FavoriteButton } from "../common/FavoriteButton";
 import { OpenTerminalButton } from "../common/OpenTerminalButton";
@@ -13,6 +14,7 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
   const selectSession = useAppStore((s) => s.selectSession);
   const [showTagManager, setShowTagManager] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
+  const [copying, setCopying] = useState(false);
 
   const handleBackup = async () => {
     setBackingUp(true);
@@ -41,6 +43,26 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
         >
           {backingUp ? "Backing up..." : "Backup"}
         </button>
+        <button
+          onClick={async () => {
+            const dir = await open({ directory: true, multiple: false, title: "Select target project directory" });
+            if (dir) {
+              setCopying(true);
+              try {
+                const newUuid = await copySessionToPath(session.id, dir as string);
+                alert(`Session copied. New ID: ${newUuid.slice(0, 8)}`);
+                onRefresh?.();
+              } catch (e) {
+                alert(`Copy failed: ${e}`);
+              }
+              setCopying(false);
+            }
+          }}
+          disabled={copying}
+          className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+        >
+          {copying ? "Copying..." : "Copy to path"}
+        </button>
         <div className="relative">
           <button
             onClick={() => setShowTagManager(!showTagManager)}
@@ -58,7 +80,7 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
             </div>
           )}
         </div>
-        <OpenTerminalButton path={session.projectPath} />
+        <OpenTerminalButton path={session.projectPath} sessionId={session.sessionId} />
         <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
       </div>
       <h1 className="text-lg font-semibold mt-2">{session.projectName}</h1>
@@ -70,6 +92,11 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
         {formatDateTime(session.startedAt)} &middot; {session.messageCount} msgs &middot; total {formatTokens(session.totalInputTokens + session.totalOutputTokens + session.totalCacheCreationTokens + session.totalCacheReadTokens)} &middot; in {formatTokens(session.totalInputTokens)} &middot; out {formatTokens(session.totalOutputTokens)} &middot; cache R {formatTokens(session.totalCacheReadTokens)} &middot; cache W {formatTokens(session.totalCacheCreationTokens)} &middot; {formatFileSize(session.fileSize)}
         {session.isBackedUp && " \u00B7 Backed up"}
       </div>
+      {session.copiedFromSessionId && (
+        <div className="text-xs text-zinc-400 mt-1">
+          Copied from <CopyText text={session.copiedFromSessionId} display={session.copiedFromSessionId.slice(0, 8)} className="text-xs text-zinc-400 font-mono" />
+        </div>
+      )}
       {session.tags.length > 0 && (
         <div className="flex gap-1 mt-2">
           {session.tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)}

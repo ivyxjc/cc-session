@@ -9,3 +9,4 @@ pub mod monitor;
 pub mod images;
 pub mod multiplexer;
 pub mod settings_io;
+pub mod copy_session;

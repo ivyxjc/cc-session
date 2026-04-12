@@ -118,6 +118,8 @@ impl Database {
         conn.execute("ALTER TABLE sessions ADD COLUMN is_favorited INTEGER DEFAULT 0", []).ok();
         conn.execute("ALTER TABLE sessions ADD COLUMN is_hidden INTEGER DEFAULT 0", []).ok();
         conn.execute("ALTER TABLE projects ADD COLUMN is_starred INTEGER DEFAULT 0", []).ok();
+        conn.execute("ALTER TABLE sessions ADD COLUMN copied_from_session_id TEXT", []).ok();
+        conn.execute("ALTER TABLE sessions ADD COLUMN copied_at INTEGER", []).ok();
 
         // Migrate existing favorites table data into sessions.is_favorited
         conn.execute(

@@ -36,7 +36,7 @@ export function LiveSessionCard({ session, onClick }: Props) {
               formatRelativeTime(session.endedAt)
             )}
           </span>
-          <OpenTerminalButton path={session.cwd} />
+          <OpenTerminalButton path={session.cwd} sessionId={session.sessionId} />
           <MultiplexerButton path={session.cwd} />
           {session.dbSessionId && (
             <FavoriteButton sessionId={session.dbSessionId} initialFavorited={false} />
