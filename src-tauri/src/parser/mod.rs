@@ -2,6 +2,7 @@ pub mod content;
 pub mod messages;
 
 use messages::{RawMessage, ParsedMessage};
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -207,4 +208,78 @@ pub fn load_latest_messages(path: &Path, count: usize) -> Result<LatestMessagesR
         messages,
         total_count,
     })
+}
+
+/// Per-day token usage extracted from a JSONL file.
+#[derive(Debug, Clone, Default)]
+pub struct DayTokens {
+    pub input_tokens: i64,
+    pub output_tokens: i64,
+    pub cache_creation_tokens: i64,
+    pub cache_read_tokens: i64,
+    pub user_msg_count: i64,
+}
+
+/// Parse a JSONL file and return token usage grouped by date (YYYY-MM-DD).
+/// Uses each assistant message's timestamp to determine the day.
+pub fn extract_daily_tokens(path: &Path) -> Result<HashMap<String, DayTokens>, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+    let reader = BufReader::new(file);
+
+    let mut daily: HashMap<String, DayTokens> = HashMap::new();
+    let mut current_date = String::new(); // fallback date from most recent timestamp
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Read error: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let raw: serde_json::Value = match serde_json::from_str(&line) {
+            Ok(r) => r,
+            Err(_) => continue,
+        };
+
+        // Track the most recent timestamp for date attribution (converted to local timezone)
+        if let Some(ts) = raw.get("timestamp").and_then(|v| v.as_str()) {
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+                let local = dt.with_timezone(&chrono::Local);
+                current_date = local.format("%Y-%m-%d").to_string();
+            }
+        }
+
+        let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
+
+        // Count real user messages (not tool_result-only)
+        if msg_type == "user" {
+            let is_real = raw.get("message")
+                .and_then(|m| m.get("content"))
+                .and_then(|c| c.as_array())
+                .map(|arr| arr.iter().any(|b| b.get("type").and_then(|t| t.as_str()) != Some("tool_result")))
+                .unwrap_or(true);
+            if is_real {
+                let date = if current_date.is_empty() { "unknown".to_string() } else { current_date.clone() };
+                let entry = daily.entry(date).or_default();
+                entry.user_msg_count += 1;
+            }
+        }
+
+        if msg_type == "assistant" {
+            if let Some(usage) = raw.get("message").and_then(|m| m.get("usage")) {
+                let input = usage.get("input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let output = usage.get("output_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let cache_creation = usage.get("cache_creation_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+                let cache_read = usage.get("cache_read_input_tokens").and_then(|v| v.as_i64()).unwrap_or(0);
+
+                let date = if current_date.is_empty() { "unknown".to_string() } else { current_date.clone() };
+                let entry = daily.entry(date).or_default();
+                entry.input_tokens += input;
+                entry.output_tokens += output;
+                entry.cache_creation_tokens += cache_creation;
+                entry.cache_read_tokens += cache_read;
+            }
+        }
+    }
+
+    Ok(daily)
 }

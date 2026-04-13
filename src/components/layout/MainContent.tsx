@@ -8,6 +8,7 @@ import { SearchResults } from "../search/SearchResults";
 import { SettingsPage } from "../settings/SettingsPage";
 import { LiveDashboard } from "../live/LiveDashboard";
 import { LiveConversationView } from "../live/LiveConversationView";
+import { UsagePage } from "../usage/UsagePage";
 
 export function MainContent() {
   const { view } = useAppStore();
@@ -33,6 +34,8 @@ export function MainContent() {
       return <LiveDashboard />;
     case "liveConversation":
       return <LiveConversationView />;
+    case "usage":
+      return <UsagePage />;
     default:
       return <ProjectList />;
   }

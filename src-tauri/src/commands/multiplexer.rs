@@ -1,7 +1,7 @@
 use crate::db::Database;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::Arc;
 use std::time::Duration;
@@ -140,18 +140,37 @@ fn basename(path: &str) -> &str {
 
 // --- Zellij ---
 
-fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, String> {
-    // Check binary exists
-    if Command::new("which")
-        .arg("zellij")
-        .output()
-        .map(|o| !o.status.success())
-        .unwrap_or(true)
+fn find_binary(name: &str) -> Option<String> {
+    // Try direct command first
+    if Command::new(name)
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok()
     {
-        return Err("zellij not found".to_string());
+        return Some(name.to_string());
     }
+    // Search common paths
+    let home = dirs::home_dir().unwrap_or_default();
+    let candidates = [
+        home.join(".cargo/bin").join(name),
+        home.join(".local/bin").join(name),
+        PathBuf::from("/usr/local/bin").join(name),
+        PathBuf::from("/opt/homebrew/bin").join(name),
+    ];
+    for p in &candidates {
+        if p.exists() {
+            return Some(p.to_string_lossy().to_string());
+        }
+    }
+    None
+}
 
-    let output = run_cmd("zellij", &["list-sessions", "-n"], 3)
+fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, String> {
+    let bin = find_binary("zellij").ok_or_else(|| "zellij not found".to_string())?;
+
+    let output = run_cmd(&bin, &["list-sessions", "-n"], 3)
         .unwrap_or_default();
 
     let mut sessions = Vec::new();
@@ -228,8 +247,9 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
 }
 
 fn get_zellij_cwd(session_name: &str) -> Option<String> {
+    let bin = find_binary("zellij")?;
     let output = run_cmd(
-        "zellij",
+        &bin,
         &["-s", session_name, "action", "dump-layout"],
         2,
     )?;
@@ -251,17 +271,10 @@ fn get_zellij_cwd(session_name: &str) -> Option<String> {
 // --- tmux ---
 
 fn detect_tmux(project_path: &str) -> Result<MultiplexerDetectionResult, String> {
-    if Command::new("which")
-        .arg("tmux")
-        .output()
-        .map(|o| !o.status.success())
-        .unwrap_or(true)
-    {
-        return Err("tmux not found".to_string());
-    }
+    let bin = find_binary("tmux").ok_or_else(|| "tmux not found".to_string())?;
 
     let output = run_cmd(
-        "tmux",
+        &bin,
         &[
             "list-sessions",
             "-F",

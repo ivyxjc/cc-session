@@ -119,6 +119,17 @@ export interface AutoHideConfig {
   minMessageCount: number;
 }
 
+export interface DailyUsage {
+  date: string;
+  sessionCount: number;
+  userMsgCount: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheCreationTokens: number;
+  totalCacheReadTokens: number;
+  totalTokens: number;
+}
+
 export interface MultiplexerConfig {
   multiplexer: string; // "none" | "zellij" | "tmux"
 }

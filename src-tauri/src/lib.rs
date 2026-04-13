@@ -68,6 +68,7 @@ pub fn run() {
             commands::settings_io::export_settings_to_file,
             commands::settings_io::import_settings_from_file,
             commands::copy_session::copy_session_to_path,
+            commands::usage::get_daily_usage,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

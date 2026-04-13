@@ -136,6 +136,10 @@ export const exportSettingsToFile = (path: string) =>
 export const importSettingsFromFile = (path: string) =>
   invoke<void>("import_settings_from_file", { path });
 
+// Usage
+export const getDailyUsage = (days?: number) =>
+  invoke<import("./types").DailyUsage[]>("get_daily_usage", { days });
+
 // Session copy
 export const copySessionToPath = (sessionId: number, targetPath: string) =>
   invoke<string>("copy_session_to_path", { sessionId, targetPath });

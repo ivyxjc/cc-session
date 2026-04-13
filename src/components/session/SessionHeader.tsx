@@ -6,6 +6,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { CopyText } from "../common/CopyText";
 import { FavoriteButton } from "../common/FavoriteButton";
 import { OpenTerminalButton } from "../common/OpenTerminalButton";
+import { MultiplexerButton } from "../common/MultiplexerButton";
 import { TagBadge } from "../common/TagBadge";
 import { TagManager } from "../common/TagManager";
 import { useAppStore } from "../../stores/appStore";
@@ -81,6 +82,7 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
           )}
         </div>
         <OpenTerminalButton path={session.projectPath} sessionId={session.sessionId} />
+        <MultiplexerButton path={session.projectPath} />
         <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
       </div>
       <h1 className="text-lg font-semibold mt-2">{session.projectName}</h1>

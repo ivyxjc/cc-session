@@ -194,10 +194,28 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
             };
 
             if needs_parse {
-                let parse_result = match parser::parse_session_metadata(&jsonl_path) {
+                let mut parse_result = match parser::parse_session_metadata(&jsonl_path) {
                     Ok(r) => r,
                     Err(_) => continue,
                 };
+
+                // Accumulate subagent token usage into the session totals
+                let subagent_dir = project_dir.join(&session_id).join("subagents");
+                if subagent_dir.exists() {
+                    if let Ok(entries) = std::fs::read_dir(&subagent_dir) {
+                        for entry in entries.filter_map(|e| e.ok()) {
+                            let path = entry.path();
+                            if path.extension().map(|e| e == "jsonl").unwrap_or(false) {
+                                if let Ok(sub_result) = parser::parse_session_metadata(&path) {
+                                    parse_result.total_input_tokens += sub_result.total_input_tokens;
+                                    parse_result.total_output_tokens += sub_result.total_output_tokens;
+                                    parse_result.total_cache_creation_tokens += sub_result.total_cache_creation_tokens;
+                                    parse_result.total_cache_read_tokens += sub_result.total_cache_read_tokens;
+                                }
+                            }
+                        }
+                    }
+                }
 
                 let started_at = parse_result.started_at.as_deref()
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
@@ -244,6 +262,45 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                 ).map_err(|e| format!("DB error: {}", e))?;
 
                 sessions_updated += 1;
+
+                // Extract daily token usage (main session + subagents)
+                if let Ok(mut daily) = parser::extract_daily_tokens(&jsonl_path) {
+                    // Also extract from subagent JSONLs
+                    let sub_dir = project_dir.join(&session_id).join("subagents");
+                    if sub_dir.exists() {
+                        if let Ok(entries) = std::fs::read_dir(&sub_dir) {
+                            for entry in entries.filter_map(|e| e.ok()) {
+                                let p = entry.path();
+                                if p.extension().map(|e| e == "jsonl").unwrap_or(false) {
+                                    if let Ok(sub_daily) = parser::extract_daily_tokens(&p) {
+                                        for (date, tokens) in sub_daily {
+                                            let e = daily.entry(date).or_default();
+                                            e.input_tokens += tokens.input_tokens;
+                                            e.output_tokens += tokens.output_tokens;
+                                            e.cache_creation_tokens += tokens.cache_creation_tokens;
+                                            e.cache_read_tokens += tokens.cache_read_tokens;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Write to daily_token_usage table
+                    for (date, tokens) in &daily {
+                        conn.execute(
+                            "INSERT INTO daily_token_usage (date, session_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, user_msg_count)
+                             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                             ON CONFLICT(date, session_id) DO UPDATE SET
+                                input_tokens = excluded.input_tokens,
+                                output_tokens = excluded.output_tokens,
+                                cache_creation_tokens = excluded.cache_creation_tokens,
+                                cache_read_tokens = excluded.cache_read_tokens,
+                                user_msg_count = excluded.user_msg_count",
+                            params![date, session_id, tokens.input_tokens, tokens.output_tokens, tokens.cache_creation_tokens, tokens.cache_read_tokens, tokens.user_msg_count],
+                        ).ok();
+                    }
+                }
 
                 // Scan subagents
                 let subagent_dir = project_dir.join(&session_id).join("subagents");

@@ -98,6 +98,17 @@ impl Database {
                 created_at  INTEGER
             );
 
+            CREATE TABLE IF NOT EXISTS daily_token_usage (
+                date          TEXT NOT NULL,
+                session_id    TEXT NOT NULL,
+                input_tokens  INTEGER DEFAULT 0,
+                output_tokens INTEGER DEFAULT 0,
+                cache_creation_tokens INTEGER DEFAULT 0,
+                cache_read_tokens INTEGER DEFAULT 0,
+                user_msg_count INTEGER DEFAULT 0,
+                PRIMARY KEY (date, session_id)
+            );
+
             CREATE TABLE IF NOT EXISTS app_config (
                 key   TEXT PRIMARY KEY,
                 value TEXT
@@ -118,6 +129,7 @@ impl Database {
         conn.execute("ALTER TABLE sessions ADD COLUMN is_favorited INTEGER DEFAULT 0", []).ok();
         conn.execute("ALTER TABLE sessions ADD COLUMN is_hidden INTEGER DEFAULT 0", []).ok();
         conn.execute("ALTER TABLE projects ADD COLUMN is_starred INTEGER DEFAULT 0", []).ok();
+        conn.execute("ALTER TABLE daily_token_usage ADD COLUMN user_msg_count INTEGER DEFAULT 0", []).ok();
         conn.execute("ALTER TABLE sessions ADD COLUMN copied_from_session_id TEXT", []).ok();
         conn.execute("ALTER TABLE sessions ADD COLUMN copied_at INTEGER", []).ok();
 
@@ -136,14 +148,14 @@ impl Database {
         ).unwrap_or(0) > 0;
         // Check if we already ran this migration by looking at app_config
         let reparse_done: bool = conn.query_row(
-            "SELECT COUNT(*) FROM app_config WHERE key = 'user_msg_reparse_v1'",
+            "SELECT COUNT(*) FROM app_config WHERE key = 'user_msg_reparse_v3'",
             [],
             |row| row.get::<_, i64>(0),
         ).unwrap_or(0) > 0;
         if needs_reparse && !reparse_done {
             conn.execute("UPDATE sessions SET file_mtime = 0", []).ok();
             conn.execute(
-                "INSERT INTO app_config (key, value) VALUES ('user_msg_reparse_v1', '1')",
+                "INSERT INTO app_config (key, value) VALUES ('user_msg_reparse_v3', '1')",
                 [],
             ).ok();
         }

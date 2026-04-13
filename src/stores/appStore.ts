@@ -1,6 +1,6 @@
 import { create } from "zustand";
 
-type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation";
+type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation" | "usage";
 
 interface AppState {
   view: View;

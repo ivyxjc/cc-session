@@ -256,6 +256,12 @@ export function Sidebar() {
       {/* Bottom */}
       <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
         <button
+          onClick={() => { setView("usage"); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "usage" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          Usage
+        </button>
+        <button
           onClick={() => { setView("backups"); setSearchQuery(""); }}
           className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "backups" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
         >
