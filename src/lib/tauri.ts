@@ -41,8 +41,8 @@ export const getSubagentMessages = (subagentId: number, offset = 0, limit = 50) 
   invoke<ParsedMessage[]>("get_subagent_messages", { subagentId, offset, limit });
 
 // Favorites
-export const toggleFavorite = (sessionId: number, note?: string) =>
-  invoke<boolean>("toggle_favorite", { sessionId, note });
+export const toggleFavorite = (sessionId: number) =>
+  invoke<boolean>("toggle_favorite", { sessionId });
 
 export const toggleHideSession = (sessionId: number) =>
   invoke<boolean>("toggle_hide_session", { sessionId });

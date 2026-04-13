@@ -45,7 +45,6 @@ pub fn set_auto_hide_config(db: State<'_, Arc<Database>>, config: AutoHideConfig
 pub fn toggle_favorite(
     db: State<'_, Arc<Database>>,
     session_id: i64,
-    _note: Option<String>,
 ) -> Result<bool, String> {
     let conn = db.conn();
     let current: bool = conn.query_row(

@@ -342,7 +342,6 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
 
     for id in &orphans {
         conn.execute("DELETE FROM session_tags WHERE session_id = ?1", params![id]).ok();
-        conn.execute("DELETE FROM favorites WHERE session_id = ?1", params![id]).ok();
         conn.execute("DELETE FROM subagents WHERE session_id = ?1", params![id]).ok();
         conn.execute("DELETE FROM sessions WHERE id = ?1", params![id]).ok();
         sessions_removed += 1;

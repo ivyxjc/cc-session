@@ -31,7 +31,8 @@ impl Database {
                 display_name  TEXT,
                 session_count INTEGER DEFAULT 0,
                 last_active   INTEGER,
-                created_at    INTEGER
+                created_at    INTEGER,
+                is_starred    INTEGER DEFAULT 0
             );
 
             CREATE TABLE IF NOT EXISTS sessions (
@@ -55,15 +56,11 @@ impl Database {
                 file_size           INTEGER DEFAULT 0,
                 file_mtime          INTEGER DEFAULT 0,
                 is_backed_up        INTEGER DEFAULT 0,
+                is_favorited        INTEGER DEFAULT 0,
+                is_hidden           INTEGER DEFAULT 0,
+                copied_from_session_id TEXT,
+                copied_at           INTEGER,
                 created_at          INTEGER
-            );
-
-            CREATE TABLE IF NOT EXISTS favorites (
-                id         INTEGER PRIMARY KEY,
-                session_id INTEGER REFERENCES sessions(id),
-                note       TEXT,
-                created_at INTEGER,
-                UNIQUE(session_id)
             );
 
             CREATE TABLE IF NOT EXISTS tags (
@@ -117,48 +114,10 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_sessions_project     ON sessions(project_id, last_active DESC);
             CREATE INDEX IF NOT EXISTS idx_sessions_last_active  ON sessions(last_active DESC);
             CREATE INDEX IF NOT EXISTS idx_sessions_slug         ON sessions(slug);
-            CREATE INDEX IF NOT EXISTS idx_favorites_session     ON favorites(session_id);
             CREATE INDEX IF NOT EXISTS idx_session_tags_tag      ON session_tags(tag_id);
             CREATE INDEX IF NOT EXISTS idx_backups_session       ON backups(session_id);
             CREATE INDEX IF NOT EXISTS idx_subagents_session     ON subagents(session_id);
         ")?;
-
-        // Migrations for existing DBs
-        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_creation_tokens INTEGER DEFAULT 0", []).ok();
-        conn.execute("ALTER TABLE sessions ADD COLUMN total_cache_read_tokens INTEGER DEFAULT 0", []).ok();
-        conn.execute("ALTER TABLE sessions ADD COLUMN is_favorited INTEGER DEFAULT 0", []).ok();
-        conn.execute("ALTER TABLE sessions ADD COLUMN is_hidden INTEGER DEFAULT 0", []).ok();
-        conn.execute("ALTER TABLE projects ADD COLUMN is_starred INTEGER DEFAULT 0", []).ok();
-        conn.execute("ALTER TABLE daily_token_usage ADD COLUMN user_msg_count INTEGER DEFAULT 0", []).ok();
-        conn.execute("ALTER TABLE sessions ADD COLUMN copied_from_session_id TEXT", []).ok();
-        conn.execute("ALTER TABLE sessions ADD COLUMN copied_at INTEGER", []).ok();
-
-        // Migrate existing favorites table data into sessions.is_favorited
-        conn.execute(
-            "UPDATE sessions SET is_favorited = 1 WHERE id IN (SELECT session_id FROM favorites)",
-            [],
-        ).ok();
-
-        // Force re-parse all sessions to update user_msg_count with new logic
-        // (only runs once — after re-parse, file_mtime will be set correctly)
-        let needs_reparse: bool = conn.query_row(
-            "SELECT COUNT(*) FROM sessions WHERE user_msg_count > 0 AND file_mtime > 0",
-            [],
-            |row| row.get::<_, i64>(0),
-        ).unwrap_or(0) > 0;
-        // Check if we already ran this migration by looking at app_config
-        let reparse_done: bool = conn.query_row(
-            "SELECT COUNT(*) FROM app_config WHERE key = 'user_msg_reparse_v3'",
-            [],
-            |row| row.get::<_, i64>(0),
-        ).unwrap_or(0) > 0;
-        if needs_reparse && !reparse_done {
-            conn.execute("UPDATE sessions SET file_mtime = 0", []).ok();
-            conn.execute(
-                "INSERT INTO app_config (key, value) VALUES ('user_msg_reparse_v3', '1')",
-                [],
-            ).ok();
-        }
 
         Ok(())
     }

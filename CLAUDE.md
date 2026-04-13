@@ -26,6 +26,9 @@ A Tauri 2 + React + TypeScript desktop app for browsing and managing local Claud
 - Tauri commands registered in `src-tauri/src/lib.rs`
 - Frontend IPC wrappers in `src/lib/tauri.ts`, types in `src/lib/types.ts`
 
+## Status
+- **Pre-release**: No backwards compatibility required for database schema changes. Breaking changes are acceptable — delete `~/Library/Application Support/claude-session-manager/index.db` and re-scan.
+
 ## Build
 ```bash
 pnpm install
