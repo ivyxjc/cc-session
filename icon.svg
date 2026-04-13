@@ -1,0 +1,27 @@
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background panel -->
+  <rect width="1024" height="1024" rx="140" fill="#202536"/>
+
+  <!-- Claude pixel creature (lower-left) -->
+  <g fill="#D88463" transform="translate(20, 220)">
+    <rect x="120" y="340" width="280" height="210"/>
+    <rect x="120" y="290" width="70" height="50"/>
+    <rect x="330" y="290" width="70" height="50"/>
+    <rect x="190" y="310" width="140" height="30"/>
+    <rect x="70" y="385" width="50" height="55"/>
+    <rect x="400" y="385" width="50" height="55"/>
+    <rect x="150" y="550" width="47" height="65"/>
+    <rect x="237" y="550" width="47" height="65"/>
+    <rect x="324" y="550" width="47" height="65"/>
+  </g>
+  <g transform="translate(20, 220)">
+    <rect x="170" y="378" width="38" height="38" fill="#000000"/>
+    <rect x="320" y="378" width="38" height="38" fill="#000000"/>
+  </g>
+
+  <!-- Magnifying glass (upper-right) -->
+  <g stroke="#7C3AED" stroke-width="48" stroke-linecap="round" stroke-linejoin="round" transform="translate(20, -130)">
+    <circle cx="710" cy="450" r="145"/>
+    <line x1="812" y1="552" x2="890" y2="630"/>
+  </g>
+</svg>

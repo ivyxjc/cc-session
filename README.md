@@ -1,4 +1,10 @@
+<p align="center">
+  <img src="icon_refined.svg" width="128" height="128" alt="Claude Session Manager">
+</p>
+
 # Claude Session Manager
+
+> **Note:** This is an independent, community-built project. It is not developed, maintained, or endorsed by Anthropic or the Claude Code team.
 
 A native desktop app for browsing, monitoring, and managing local Claude Code sessions. Built with Tauri 2 + React + TypeScript.
 
