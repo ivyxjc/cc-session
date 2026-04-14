@@ -167,3 +167,25 @@ export const watchSession = (sessionId: string) =>
 
 export const unwatchSession = (sessionId: string) =>
   invoke<void>("unwatch_session", { sessionId });
+
+// Codex
+export const codexListProjects = (sortBy?: string) =>
+  invoke<import("./types").CodexProject[]>("codex_list_projects", { sortBy });
+
+export const codexListSessions = (params: {
+  cwd?: string;
+  sortBy?: string;
+  showArchived?: boolean;
+}) => invoke<import("./types").CodexSession[]>("codex_list_sessions", params);
+
+export const codexGetMessages = (threadId: string, offset = 0, limit = 50) =>
+  invoke<ViewMessage[]>("codex_get_messages", { threadId, offset, limit });
+
+export const codexGetLatestMessages = (threadId: string, count = 50) =>
+  invoke<LatestMessagesResult>("codex_get_latest_messages", { threadId, count });
+
+export const codexGetSubagents = (threadId: string) =>
+  invoke<import("./types").CodexSubagent[]>("codex_get_subagents", { threadId });
+
+export const codexGetSubagentMessages = (threadId: string, offset = 0, limit = 200) =>
+  invoke<ViewMessage[]>("codex_get_subagent_messages", { threadId, offset, limit });

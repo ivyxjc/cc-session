@@ -27,7 +27,7 @@ interface ProjectGroup {
 }
 
 export function Sidebar() {
-  const { view, setView, selectedProjectId, selectProject, selectedProjectGroup, selectProjectGroup, searchQuery, setSearchQuery } = useAppStore();
+  const { provider, setProvider, view, setView, selectedProjectId, selectProject, selectedProjectGroup, selectProjectGroup, searchQuery, setSearchQuery } = useAppStore();
   const { selectedTagId, setSelectedTagId } = useFilterStore();
   const liveSessions = useLiveStore((s) => s.liveSessions);
   const setLiveSessions = useLiveStore((s) => s.setLiveSessions);
@@ -109,53 +109,92 @@ export function Sidebar() {
 
   return (
     <aside className="h-full bg-zinc-50 dark:bg-zinc-900 flex flex-col overflow-hidden">
-      {/* Search */}
-      <div className="p-3 pb-0">
-        <input
-          type="text"
-          placeholder="Search sessions..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="w-full px-3 py-1.5 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm placeholder-zinc-400 focus:outline-none focus:border-zinc-500"
-        />
+      {/* Provider Switcher */}
+      <div className="p-3 pb-2">
+        <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
+          <button
+            onClick={() => setProvider("claude")}
+            className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
+              provider === "claude"
+                ? "bg-zinc-200 dark:bg-zinc-700 text-zinc-900 dark:text-zinc-100"
+                : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            Claude
+          </button>
+          <button
+            onClick={() => setProvider("codex")}
+            className={`flex-1 px-3 py-1.5 text-sm font-medium transition-colors ${
+              provider === "codex"
+                ? "bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200"
+                : "text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+          >
+            Codex
+          </button>
+        </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="p-3 space-y-1">
-        <button
-          onClick={() => { setView("live"); setSearchQuery(""); }}
-          className={`w-full text-left px-3 py-1.5 rounded text-sm flex items-center justify-between ${view === "live" || view === "liveConversation" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-        >
-          <span>Live</span>
-          {liveSessions.filter((s) => s.isAlive).length > 0 && (
-            <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-              {liveSessions.filter((s) => s.isAlive).length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => { setView("projects"); selectProject(null); setSearchQuery(""); }}
-          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "projects" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-        >
-          All Projects
-        </button>
-        <button
-          onClick={() => { setView("sessions"); selectProject(null); setSearchQuery(""); }}
-          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "sessions" && !selectedProjectId ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-        >
-          All Sessions
-        </button>
-        <button
-          onClick={() => { setView("favorites"); selectProject(null); setSearchQuery(""); }}
-          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "favorites" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-        >
-          Favorites
-        </button>
-      </nav>
+      {/* Search (Claude only) */}
+      {provider === "claude" && (
+        <div className="px-3 pb-0">
+          <input
+            type="text"
+            placeholder="Search sessions..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-3 py-1.5 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm placeholder-zinc-400 focus:outline-none focus:border-zinc-500"
+          />
+        </div>
+      )}
 
-      {/* Tags */}
-      {tags.length > 0 && (
+      {/* Navigation */}
+      {provider === "claude" ? (
+        <nav className="p-3 space-y-1">
+          <button
+            onClick={() => { setView("live"); setSearchQuery(""); }}
+            className={`w-full text-left px-3 py-1.5 rounded text-sm flex items-center justify-between ${view === "live" || view === "liveConversation" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+          >
+            <span>Live</span>
+            {liveSessions.filter((s) => s.isAlive).length > 0 && (
+              <span className="inline-flex items-center gap-1 text-xs text-green-600 dark:text-green-400">
+                <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                {liveSessions.filter((s) => s.isAlive).length}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => { setView("projects"); selectProject(null); setSearchQuery(""); }}
+            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "projects" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+          >
+            All Projects
+          </button>
+          <button
+            onClick={() => { setView("sessions"); selectProject(null); setSearchQuery(""); }}
+            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "sessions" && !selectedProjectId ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+          >
+            All Sessions
+          </button>
+          <button
+            onClick={() => { setView("favorites"); selectProject(null); setSearchQuery(""); }}
+            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "favorites" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+          >
+            Favorites
+          </button>
+        </nav>
+      ) : (
+        <nav className="p-3 space-y-1">
+          <button
+            onClick={() => { setView("codexProjects"); }}
+            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "codexProjects" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+          >
+            All Projects
+          </button>
+        </nav>
+      )}
+
+      {/* Tags (Claude only) */}
+      {provider === "claude" && tags.length > 0 && (
         <div className="px-3 py-2">
           <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Tags</h3>
           <div className="space-y-0.5">
@@ -179,11 +218,13 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Projects (grouped by displayName) */}
-      <div className="px-3 pt-2">
-        <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Projects</h3>
-      </div>
-      <div className="flex-1 overflow-y-auto px-3 pb-2">
+      {/* Projects list (Claude only) */}
+      {provider === "claude" && (
+        <div className="px-3 pt-2">
+          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Projects</h3>
+        </div>
+      )}
+      {provider === "claude" && <div className="flex-1 overflow-y-auto px-3 pb-2">
         <div className="space-y-0.5">
           {projectGroups.map((group) => {
             const isMulti = group.projects.length > 1;
@@ -251,45 +292,54 @@ export function Sidebar() {
             );
           })}
         </div>
-      </div>
+      </div>}
+
+      {/* Spacer for Codex mode */}
+      {provider === "codex" && <div className="flex-1" />}
 
       {/* Bottom */}
       <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
-        <button
-          onClick={() => { setView("usage"); setSearchQuery(""); }}
-          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "usage" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-        >
-          Usage
-        </button>
-        <button
-          onClick={() => { setView("backups"); setSearchQuery(""); }}
-          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "backups" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-        >
-          Backups
-        </button>
+        {provider === "claude" && (
+          <>
+            <button
+              onClick={() => { setView("usage"); setSearchQuery(""); }}
+              className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "usage" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+            >
+              Usage
+            </button>
+            <button
+              onClick={() => { setView("backups"); setSearchQuery(""); }}
+              className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "backups" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+            >
+              Backups
+            </button>
+          </>
+        )}
         <button
           onClick={() => { setView("settings"); setSearchQuery(""); }}
           className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "settings" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
         >
           Settings
         </button>
-        <button
-          onClick={async () => {
-            setRefreshing(true);
-            try {
-              await refreshIndex();
-              listProjects("time").then(setProjects).catch(console.error);
-              triggerRefresh();
-            } catch (e) {
-              console.error(e);
-            }
-            setRefreshing(false);
-          }}
-          disabled={refreshing}
-          className="w-full text-left px-3 py-1.5 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
-        >
-          {refreshing ? "Refreshing..." : "Refresh Index"}
-        </button>
+        {provider === "claude" && (
+          <button
+            onClick={async () => {
+              setRefreshing(true);
+              try {
+                await refreshIndex();
+                listProjects("time").then(setProjects).catch(console.error);
+                triggerRefresh();
+              } catch (e) {
+                console.error(e);
+              }
+              setRefreshing(false);
+            }}
+            disabled={refreshing}
+            className="w-full text-left px-3 py-1.5 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {refreshing ? "Refreshing..." : "Refresh Index"}
+          </button>
+        )}
       </div>
     </aside>
   );

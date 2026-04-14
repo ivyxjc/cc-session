@@ -9,6 +9,9 @@ import { SettingsPage } from "../settings/SettingsPage";
 import { LiveDashboard } from "../live/LiveDashboard";
 import { LiveConversationView } from "../live/LiveConversationView";
 import { UsagePage } from "../usage/UsagePage";
+import { CodexProjectList } from "../codex/CodexProjectList";
+import { CodexSessionList } from "../codex/CodexSessionList";
+import { CodexConversationView } from "../codex/CodexConversationView";
 
 export function MainContent() {
   const { view } = useAppStore();
@@ -36,6 +39,12 @@ export function MainContent() {
       return <LiveConversationView />;
     case "usage":
       return <UsagePage />;
+    case "codexProjects":
+      return <CodexProjectList />;
+    case "codexSessions":
+      return <CodexSessionList />;
+    case "codexConversation":
+      return <CodexConversationView />;
     default:
       return <ProjectList />;
   }

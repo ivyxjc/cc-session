@@ -6,6 +6,7 @@ mod backup;
 mod monitor;
 mod models;
 mod claude;
+mod codex;
 
 use db::Database;
 use monitor::LiveMonitor;
@@ -71,6 +72,12 @@ pub fn run() {
             commands::settings_io::import_settings_from_file,
             commands::copy_session::copy_session_to_path,
             commands::usage::get_daily_usage,
+            codex::commands::codex_list_projects,
+            codex::commands::codex_list_sessions,
+            codex::commands::codex_get_messages,
+            codex::commands::codex_get_latest_messages,
+            codex::commands::codex_get_subagents,
+            codex::commands::codex_get_subagent_messages,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
