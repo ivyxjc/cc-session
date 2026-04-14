@@ -177,6 +177,43 @@ pub fn list_sessions(
     Ok(sessions)
 }
 
+/// Get a single Codex session by thread ID.
+pub fn get_session(thread_id: &str) -> Result<CodexSession, String> {
+    let conn = open_codex_db()?;
+
+    let subagent_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM thread_spawn_edges WHERE parent_thread_id = ?1",
+        params![thread_id],
+        |row| row.get(0),
+    ).unwrap_or(0);
+
+    conn.query_row(
+        "SELECT id, rollout_path, cwd, title, model, model_provider, tokens_used,
+                git_branch, cli_version, approval_mode, source, archived,
+                created_at, updated_at, first_user_message
+         FROM threads WHERE id = ?1",
+        params![thread_id],
+        |row| {
+            Ok(CodexSession {
+                id: row.get(0)?,
+                title: row.get(3)?,
+                cwd: row.get(2)?,
+                model: row.get(4)?,
+                tokens_used: row.get(6)?,
+                git_branch: row.get(7)?,
+                cli_version: row.get(8)?,
+                approval_mode: row.get(9)?,
+                source: row.get(10)?,
+                archived: row.get(11)?,
+                created_at: row.get(12)?,
+                updated_at: row.get(13)?,
+                first_user_message: row.get(14)?,
+                subagent_count,
+            })
+        },
+    ).map_err(|e| format!("Thread not found: {}", e))
+}
+
 /// Get the rollout_path (JSONL file path) for a thread.
 pub fn get_thread_rollout_path(thread_id: &str) -> Result<String, String> {
     let conn = open_codex_db()?;

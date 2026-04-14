@@ -169,6 +169,9 @@ export const unwatchSession = (sessionId: string) =>
   invoke<void>("unwatch_session", { sessionId });
 
 // Codex
+export const codexGetSession = (threadId: string) =>
+  invoke<import("./types").CodexSession>("codex_get_session", { threadId });
+
 export const codexListProjects = (sortBy?: string) =>
   invoke<import("./types").CodexProject[]>("codex_list_projects", { sortBy });
 

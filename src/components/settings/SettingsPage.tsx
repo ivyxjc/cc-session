@@ -315,7 +315,7 @@ export function SettingsPage() {
         <button
           onClick={async () => {
             const filePath = await saveDialog({
-              defaultPath: "claude-session-manager-settings.json",
+              defaultPath: "cc-session-settings.json",
               filters: [{ name: "JSON", extensions: ["json"] }],
             });
             if (filePath) {

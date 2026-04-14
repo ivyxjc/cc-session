@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "claude-session-manager",
+  "productName": "cc-session",
   "version": "0.1.0",
-  "identifier": "com.ivyxjc.claude-session-manager",
+  "identifier": "com.ivyxjc.cc-session",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Claude Session Manager",
+        "title": "CC Session",
         "width": 1280,
         "height": 800,
         "minWidth": 900,

@@ -5,6 +5,11 @@ use crate::parser::ViewLatestMessagesResult;
 use std::path::Path;
 
 #[tauri::command]
+pub fn codex_get_session(thread_id: String) -> Result<CodexSession, String> {
+    db::get_session(&thread_id)
+}
+
+#[tauri::command]
 pub fn codex_list_projects(sort_by: Option<String>) -> Result<Vec<CodexProject>, String> {
     db::list_projects(sort_by.as_deref())
 }

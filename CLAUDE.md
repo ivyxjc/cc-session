@@ -1,8 +1,8 @@
 In this project, you may proactively perform GIT operations.
 
-# Project: Claude Session Manager
+# Project: CC Session
 
-A Tauri 2 + React + TypeScript desktop app for browsing and managing local Claude Code sessions.
+A Tauri 2 + React + TypeScript desktop app for browsing and managing local Claude Code and OpenAI Codex sessions.
 
 ## Tech Stack
 - **Backend**: Rust (Tauri 2), rusqlite, notify 7, zstd, chrono
@@ -10,19 +10,23 @@ A Tauri 2 + React + TypeScript desktop app for browsing and managing local Claud
 - **Package manager**: pnpm
 
 ## Key Directories
-- `src-tauri/src/` — Rust backend (scanner, parser, monitor, backup, commands, db)
+- `src-tauri/src/` — Rust backend (scanner, parser, monitor, backup, commands, db, models, claude, codex)
 - `src/` — React frontend (components, stores, lib)
+- `src/components/codex/` — Codex-specific frontend views
 - `docs/specs/` — Design specs
 
 ## Architecture
-- App reads `~/.claude/` read-only. All app state in SQLite at `~/Library/Application Support/claude-session-manager/`
-- `scanner` discovers sessions from JSONL files, `parser` extracts messages/metadata
-- `monitor` module handles live session tracking (PID polling + fs-notify JSONL tail)
+- Claude: reads `~/.claude/` read-only, scans JSONL sessions, indexes into app SQLite at `~/Library/Application Support/claude-session-manager/`
+- Codex: reads `~/.codex/state_5.sqlite` read-only for metadata, parses `~/.codex/sessions/` JSONL for conversations
+- Unified view model (`ViewMessage`/`ViewContentBlock`) — provider-specific parsers convert to shared types
+- `scanner` discovers Claude sessions, `parser` extracts messages, `monitor` handles live tracking
+- `codex/` module reads Codex DB directly (no scanning needed)
 - Frontend uses react-virtuoso for virtualized message lists, zustand for state
 
 ## Conventions
 - Rust structs use `#[serde(rename_all = "camelCase")]` for Tauri IPC (frontend gets camelCase)
-- Exception: `ContentBlock` enum uses `#[serde(rename_all = "snake_case")]` for JSONL compatibility — frontend types must match snake_case field names (`tool_use_id`, `is_error`, `media_type`)
+- Raw parser types (`ContentBlock`) use snake_case serde for JSONL compatibility; view model types (`ViewContentBlock`) use camelCase for frontend
+- Codex-specific types live in `src-tauri/src/codex/`, Claude-specific in `src-tauri/src/claude/`
 - Tauri commands registered in `src-tauri/src/lib.rs`
 - Frontend IPC wrappers in `src/lib/tauri.ts`, types in `src/lib/types.ts`
 

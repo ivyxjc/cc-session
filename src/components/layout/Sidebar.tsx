@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useFilterStore } from "../../stores/filterStore";
 import { useLiveStore } from "../../stores/liveStore";
-import { listProjects, listTags, getLiveSessions, toggleStarProject, refreshIndex } from "../../lib/tauri";
-import type { Project, Tag } from "../../lib/types";
+import { listProjects, listTags, getLiveSessions, toggleStarProject, refreshIndex, codexListProjects } from "../../lib/tauri";
+import type { Project, Tag, CodexProject } from "../../lib/types";
 import { Tooltip } from "../common/Tooltip";
 
 function longestCommonPrefix(paths: string[]): string {
@@ -31,7 +31,10 @@ export function Sidebar() {
   const { selectedTagId, setSelectedTagId } = useFilterStore();
   const liveSessions = useLiveStore((s) => s.liveSessions);
   const setLiveSessions = useLiveStore((s) => s.setLiveSessions);
+  const selectCodexProject = useAppStore((s) => s.selectCodexProject);
+  const selectedCodexCwd = useAppStore((s) => s.selectedCodexCwd);
   const [projects, setProjects] = useState<Project[]>([]);
+  const [codexProjects, setCodexProjects] = useState<CodexProject[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
@@ -41,6 +44,7 @@ export function Sidebar() {
     listProjects("time").then(setProjects).catch(console.error);
     listTags().then(setTags).catch(console.error);
     getLiveSessions().then(setLiveSessions).catch(console.error);
+    codexListProjects("time").then(setCodexProjects).catch(console.error);
 
     // Refresh live session count every 10s for the badge
     const interval = setInterval(() => {
@@ -193,6 +197,34 @@ export function Sidebar() {
         </nav>
       )}
 
+      {/* Codex projects in sidebar */}
+      {provider === "codex" && (
+        <>
+          <div className="px-3 pt-2">
+            <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Projects</h3>
+          </div>
+          <div className="flex-1 overflow-y-auto px-3 pb-2">
+            <div className="space-y-0.5">
+              {codexProjects.map((p) => (
+                <button
+                  key={p.cwd}
+                  onClick={() => selectCodexProject(p.cwd)}
+                  className={`w-full text-left px-3 py-1 rounded text-sm flex items-center gap-1 ${
+                    selectedCodexCwd === p.cwd
+                      ? "bg-zinc-200 dark:bg-zinc-800"
+                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  }`}
+                  title={p.cwd}
+                >
+                  <span className="truncate flex-1">{p.displayName}</span>
+                  <span className="text-zinc-400 text-xs shrink-0">{p.sessionCount}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </>
+      )}
+
       {/* Tags (Claude only) */}
       {provider === "claude" && tags.length > 0 && (
         <div className="px-3 py-2">
@@ -293,9 +325,6 @@ export function Sidebar() {
           })}
         </div>
       </div>}
-
-      {/* Spacer for Codex mode */}
-      {provider === "codex" && <div className="flex-1" />}
 
       {/* Bottom */}
       <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-1">

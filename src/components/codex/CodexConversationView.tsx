@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { codexGetLatestMessages, codexGetMessages, codexGetSubagents, codexGetSubagentMessages } from "../../lib/tauri";
-import type { ViewMessage, CodexSubagent } from "../../lib/types";
+import { codexGetSession, codexGetLatestMessages, codexGetMessages, codexGetSubagents, codexGetSubagentMessages } from "../../lib/tauri";
+import type { ViewMessage, CodexSession, CodexSubagent } from "../../lib/types";
 import type { ToolResult } from "../../lib/toolResults";
+import { formatTokens, formatRelativeTime } from "../../lib/format";
 import { useAppStore } from "../../stores/appStore";
+import { CopyText } from "../common/CopyText";
 import { MessageBubble } from "../message/MessageBubble";
 
 function useIncrementalToolResults(messages: ViewMessage[]) {
@@ -40,6 +42,7 @@ export function CodexConversationView() {
   const selectedCodexThreadId = useAppStore((s) => s.selectedCodexThreadId);
   const setView = useAppStore((s) => s.setView);
 
+  const [session, setSession] = useState<CodexSession | null>(null);
   const [messages, setMessages] = useState<ViewMessage[]>([]);
   const [subagents, setSubagents] = useState<CodexSubagent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -59,9 +62,11 @@ export function CodexConversationView() {
     setSubagentsExpanded(false);
 
     Promise.all([
+      codexGetSession(selectedCodexThreadId),
       codexGetLatestMessages(selectedCodexThreadId, INITIAL_LOAD),
       codexGetSubagents(selectedCodexThreadId),
-    ]).then(([result, subs]) => {
+    ]).then(([sess, result, subs]) => {
+      setSession(sess);
       const startOffset = result.totalCount - result.messages.length;
       setMessages(result.messages);
       setSubagents(subs);
@@ -111,8 +116,26 @@ export function CodexConversationView() {
           <span className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full font-medium">
             Codex
           </span>
+          {session?.source && (
+            <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+              session.source === "cli" ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950" :
+              session.source === "vscode" ? "text-purple-600 dark:text-purple-400 bg-purple-50 dark:bg-purple-950" :
+              "text-orange-600 dark:text-orange-400 bg-orange-50 dark:bg-orange-950"
+            }`}>
+              {session.source}
+            </span>
+          )}
         </div>
-        <div className="text-xs text-zinc-400 font-mono mt-1">{selectedCodexThreadId}</div>
+        <h1 className="text-lg font-semibold mt-2 break-words">
+          {session?.title || session?.firstUserMessage?.slice(0, 80) || "Untitled"}
+        </h1>
+        <CopyText text={selectedCodexThreadId} className="text-sm text-zinc-400 font-mono" />
+        <div className="text-sm text-zinc-500 mt-0.5">
+          {session?.cwd?.split("/").pop() || "\u2014"} &middot; {session?.gitBranch || "\u2014"} &middot; {session?.model || "\u2014"} &middot; {session?.approvalMode || "default"}
+        </div>
+        <div className="text-xs text-zinc-400 mt-1">
+          {messages.length} msgs &middot; {formatTokens(session?.tokensUsed || 0)} tokens &middot; v{session?.cliVersion || "?"} &middot; {formatRelativeTime(session ? session.updatedAt * 1000 : null)}
+        </div>
       </div>
 
       {/* Virtualized message list */}
