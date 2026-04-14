@@ -1,19 +1,19 @@
 import { useState } from "react";
 import { CodeBlock } from "./CodeBlock";
 import { getSubagentMessages } from "../../lib/tauri";
-import type { ContentBlock, ParsedMessage, SubagentSummary } from "../../lib/types";
+import type { ViewContentBlock, ViewMessage, SubagentSummary } from "../../lib/types";
 import type { ToolResult } from "../../lib/toolResults";
 import { MessageBubble } from "./MessageBubble";
 
 interface Props {
-  block: ContentBlock;
+  block: ViewContentBlock;
   subagents?: SubagentSummary[];
   toolResult?: ToolResult;
 }
 
 export function ToolCallBlock({ block, subagents, toolResult }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [agentMessages, setAgentMessages] = useState<ParsedMessage[]>([]);
+  const [agentMessages, setAgentMessages] = useState<ViewMessage[]>([]);
   const [agentLoaded, setAgentLoaded] = useState(false);
 
   const toolName = block.name || "Unknown";

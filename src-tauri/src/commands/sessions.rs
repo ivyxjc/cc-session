@@ -1,7 +1,8 @@
 use crate::db::Database;
 use crate::db::models::{SessionSummary, Tag, SubagentSummary};
 use crate::parser;
-use crate::parser::messages::ParsedMessage;
+use crate::claude::converter::to_view_message;
+use crate::models::ViewMessage;
 use rusqlite::params;
 use std::path::Path;
 use std::sync::Arc;
@@ -167,7 +168,7 @@ pub fn get_messages(
     session_id: i64,
     offset: Option<usize>,
     limit: Option<usize>,
-) -> Result<Vec<ParsedMessage>, String> {
+) -> Result<Vec<ViewMessage>, String> {
     let conn = db.conn();
     let jsonl_path: String = conn.query_row(
         "SELECT jsonl_path FROM sessions WHERE id = ?1",
@@ -175,11 +176,12 @@ pub fn get_messages(
         |row| row.get(0),
     ).map_err(|e| format!("Session not found: {}", e))?;
 
-    parser::load_messages(
+    let messages = parser::load_messages(
         Path::new(&jsonl_path),
         offset.unwrap_or(0),
         limit.unwrap_or(50),
-    )
+    )?;
+    Ok(messages.into_iter().map(to_view_message).collect())
 }
 
 #[tauri::command]
@@ -187,7 +189,7 @@ pub fn get_latest_messages(
     db: State<'_, Arc<Database>>,
     session_id: i64,
     count: Option<usize>,
-) -> Result<parser::LatestMessagesResult, String> {
+) -> Result<parser::ViewLatestMessagesResult, String> {
     let conn = db.conn();
     let jsonl_path: String = conn.query_row(
         "SELECT jsonl_path FROM sessions WHERE id = ?1",
@@ -195,10 +197,14 @@ pub fn get_latest_messages(
         |row| row.get(0),
     ).map_err(|e| format!("Session not found: {}", e))?;
 
-    parser::load_latest_messages(
+    let result = parser::load_latest_messages(
         Path::new(&jsonl_path),
         count.unwrap_or(50),
-    )
+    )?;
+    Ok(parser::ViewLatestMessagesResult {
+        messages: result.messages.into_iter().map(to_view_message).collect(),
+        total_count: result.total_count,
+    })
 }
 
 #[tauri::command]
@@ -234,7 +240,7 @@ pub fn get_subagent_messages(
     subagent_id: i64,
     offset: Option<usize>,
     limit: Option<usize>,
-) -> Result<Vec<ParsedMessage>, String> {
+) -> Result<Vec<ViewMessage>, String> {
     let conn = db.conn();
     let jsonl_path: String = conn.query_row(
         "SELECT jsonl_path FROM subagents WHERE id = ?1",
@@ -242,9 +248,10 @@ pub fn get_subagent_messages(
         |row| row.get(0),
     ).map_err(|e| format!("Subagent not found: {}", e))?;
 
-    parser::load_messages(
+    let messages = parser::load_messages(
         Path::new(&jsonl_path),
         offset.unwrap_or(0),
         limit.unwrap_or(50),
-    )
+    )?;
+    Ok(messages.into_iter().map(to_view_message).collect())
 }

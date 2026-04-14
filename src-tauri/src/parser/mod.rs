@@ -173,6 +173,14 @@ pub struct LatestMessagesResult {
     pub total_count: usize,
 }
 
+/// View-layer result with ViewMessage instead of ParsedMessage.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ViewLatestMessagesResult {
+    pub messages: Vec<crate::models::ViewMessage>,
+    pub total_count: usize,
+}
+
 /// Load the latest N messages from a session JSONL (from the end of the file).
 /// Used for live session views where we want to see the most recent messages.
 /// Returns the messages and the total displayable message count.

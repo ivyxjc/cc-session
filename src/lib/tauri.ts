@@ -1,6 +1,6 @@
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
 import type {
-  Project, SessionSummary, ParsedMessage, SubagentSummary,
+  Project, SessionSummary, ViewMessage, SubagentSummary,
   Tag, Backup, BackupConfig, TerminalConfig, ScanResult, LiveSession,
   LatestMessagesResult,
   MultiplexerConfig, MultiplexerDetectionResult,
@@ -29,7 +29,7 @@ export const listSessions = (params: {
 }) => invoke<SessionSummary[]>("list_sessions", params);
 
 export const getMessages = (sessionId: number, offset = 0, limit = 50) =>
-  invoke<ParsedMessage[]>("get_messages", { sessionId, offset, limit });
+  invoke<ViewMessage[]>("get_messages", { sessionId, offset, limit });
 
 export const getLatestMessages = (sessionId: number, count = 50) =>
   invoke<LatestMessagesResult>("get_latest_messages", { sessionId, count });
@@ -38,7 +38,7 @@ export const getSubagents = (sessionId: number) =>
   invoke<SubagentSummary[]>("get_subagents", { sessionId });
 
 export const getSubagentMessages = (subagentId: number, offset = 0, limit = 50) =>
-  invoke<ParsedMessage[]>("get_subagent_messages", { subagentId, offset, limit });
+  invoke<ViewMessage[]>("get_subagent_messages", { subagentId, offset, limit });
 
 // Favorites
 export const toggleFavorite = (sessionId: number) =>
@@ -89,7 +89,7 @@ export const deleteBackup = (backupId: number) =>
   invoke<void>("delete_backup", { backupId });
 
 export const getBackupMessages = (backupPath: string, offset = 0, limit = 200) =>
-  invoke<ParsedMessage[]>("get_backup_messages", { backupPath, offset, limit });
+  invoke<ViewMessage[]>("get_backup_messages", { backupPath, offset, limit });
 
 export const migrateBackups = (oldDir: string, newDir: string) =>
   invoke<number>("migrate_backups_cmd", { oldDir, newDir });

@@ -106,11 +106,11 @@ export interface LiveSession {
 
 export interface SessionMessagesUpdate {
   sessionId: string;
-  newMessages: ParsedMessage[];
+  newMessages: ViewMessage[];
 }
 
 export interface LatestMessagesResult {
-  messages: ParsedMessage[];
+  messages: ViewMessage[];
   totalCount: number;
 }
 
@@ -156,40 +156,37 @@ export interface ScanResult {
   durationMs: number;
 }
 
-// Message types from parser
-export interface ContentBlock {
-  type: "text" | "thinking" | "tool_use" | "tool_result" | "image";
+// View model types — provider-agnostic
+export interface ViewContentBlock {
+  type: "text" | "thinking" | "toolCall" | "toolResult" | "image";
   // text
   text?: string;
   // thinking
   thinking?: string;
-  // tool_use
+  // toolCall
   id?: string;
   name?: string;
   input?: Record<string, unknown>;
-  // tool_result — field names match Rust snake_case serialization
-  tool_use_id?: string;
+  // toolResult
+  toolCallId?: string;
   content?: unknown;
-  is_error?: boolean;
-  // image — field names match Rust snake_case serialization
+  isError?: boolean;
+  // image
   source?: {
-    type: string;
-    media_type?: string;
+    sourceType: string;
+    mediaType?: string;
     data?: string;
   };
 }
 
-export interface Usage {
+export interface ViewUsage {
   inputTokens: number;
   outputTokens: number;
   cacheCreationInputTokens: number;
   cacheReadInputTokens: number;
 }
 
-export type ParsedMessage =
-  | { type: "user"; uuid: string; parentUuid: string | null; timestamp: string | null; content: ContentBlock[] }
-  | { type: "assistant"; uuid: string; parentUuid: string | null; timestamp: string | null; model: string | null; content: ContentBlock[]; usage: Usage | null; stopReason: string | null }
-  | { type: "system"; uuid: string | null; timestamp: string | null; subtype: string | null; content: string | null }
-  | { type: "attachment"; attachmentType: string }
-  | { type: "permissionMode"; mode: string }
-  | { type: "fileHistorySnapshot" };
+export type ViewMessage =
+  | { type: "user"; id: string; parentId: string | null; timestamp: string | null; content: ViewContentBlock[] }
+  | { type: "assistant"; id: string; parentId: string | null; timestamp: string | null; model: string | null; content: ViewContentBlock[]; usage: ViewUsage | null; stopReason: string | null }
+  | { type: "system"; id: string | null; timestamp: string | null; subtype: string | null; content: string | null };

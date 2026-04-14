@@ -2,7 +2,8 @@ use crate::backup;
 use crate::db::Database;
 use crate::db::models::{Backup, BackupConfig};
 use crate::parser;
-use crate::parser::messages::ParsedMessage;
+use crate::claude::converter::to_view_message;
+use crate::models::ViewMessage;
 use rusqlite::params;
 use std::path::Path;
 use std::sync::Arc;
@@ -130,12 +131,13 @@ pub fn get_backup_messages(
     backup_path: String,
     offset: Option<usize>,
     limit: Option<usize>,
-) -> Result<Vec<ParsedMessage>, String> {
+) -> Result<Vec<ViewMessage>, String> {
     let path = Path::new(&backup_path);
     if !path.exists() {
         return Err(format!("Backup file not found: {}", backup_path));
     }
-    parser::load_messages(path, offset.unwrap_or(0), limit.unwrap_or(200))
+    let messages = parser::load_messages(path, offset.unwrap_or(0), limit.unwrap_or(200))?;
+    Ok(messages.into_iter().map(to_view_message).collect())
 }
 
 #[tauri::command]

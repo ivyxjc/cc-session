@@ -1,5 +1,7 @@
 use crate::db::Database;
 use crate::parser::messages::{ParsedMessage, RawMessage};
+use crate::claude::converter::to_view_message;
+use crate::models::ViewMessage;
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
@@ -46,7 +48,7 @@ pub struct LiveSession {
 #[serde(rename_all = "camelCase")]
 pub struct SessionMessagesUpdate {
     pub session_id: String,
-    pub new_messages: Vec<ParsedMessage>,
+    pub new_messages: Vec<ViewMessage>,
 }
 
 // --- Raw session file from ~/.claude/sessions/{pid}.json ---
@@ -342,7 +344,7 @@ impl Drop for LiveMonitor {
 
 /// Read new lines from a JSONL file starting at the given offset.
 /// Only advances the offset past complete lines to avoid losing partial writes.
-fn read_new_lines(path: &Path, offset: &Mutex<u64>) -> Vec<ParsedMessage> {
+fn read_new_lines(path: &Path, offset: &Mutex<u64>) -> Vec<ViewMessage> {
     let mut messages = Vec::new();
     let Ok(mut current_offset) = offset.lock() else {
         return messages;
@@ -397,7 +399,7 @@ fn read_new_lines(path: &Path, offset: &Mutex<u64>) -> Vec<ParsedMessage> {
 
         if matches!(raw.msg_type.as_str(), "user" | "assistant" | "system") {
             if let Some(parsed) = ParsedMessage::from_raw(&raw) {
-                messages.push(parsed);
+                messages.push(to_view_message(parsed));
             }
         }
     }

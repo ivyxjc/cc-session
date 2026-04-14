@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { listen } from "@tauri-apps/api/event";
 import { getLatestMessages, getMessages, getSubagents, watchSession, unwatchSession, listSessions } from "../../lib/tauri";
-import type { ParsedMessage, SubagentSummary, SessionMessagesUpdate } from "../../lib/types";
+import type { ViewMessage, SubagentSummary, SessionMessagesUpdate } from "../../lib/types";
 import { useLiveStore } from "../../stores/liveStore";
 import { useAppStore } from "../../stores/appStore";
 import { formatTokens, formatFileSize } from "../../lib/format";
@@ -21,7 +21,7 @@ import type { ToolResult } from "../../lib/toolResults";
 
 // --- Incremental tool results (task #10 inlined) ---
 
-function useIncrementalToolResults(messages: ParsedMessage[]) {
+function useIncrementalToolResults(messages: ViewMessage[]) {
   const mapRef = useRef(new Map<string, ToolResult>());
   const processedRef = useRef(0);
 
@@ -31,9 +31,9 @@ function useIncrementalToolResults(messages: ParsedMessage[]) {
       const msg = messages[i];
       if (msg.type !== "user") continue;
       for (const block of msg.content) {
-        if (block.type === "tool_result" && block.tool_use_id) {
+        if (block.type === "toolResult" && block.toolCallId) {
           const content = extractToolResultContent(block);
-          mapRef.current.set(block.tool_use_id, { content, isError: block.is_error ?? false });
+          mapRef.current.set(block.toolCallId, { content, isError: block.isError ?? false });
         }
       }
     }
@@ -60,19 +60,19 @@ function extractToolResultContent(block: { content?: unknown }): string {
 
 // --- Message key ---
 
-function getMessageKey(msg: ParsedMessage, index: number): string {
-  if (msg.type === "user" || msg.type === "assistant") return msg.uuid || `msg-${index}`;
-  if (msg.type === "system") return msg.uuid || `sys-${index}`;
+function getMessageKey(msg: ViewMessage, index: number): string {
+  if (msg.type === "user" || msg.type === "assistant") return msg.id || `msg-${index}`;
+  if (msg.type === "system") return msg.id || `sys-${index}`;
   return `msg-${index}`;
 }
 
-function findSubagentMessageIndex(messages: ParsedMessage[], description: string): number {
+function findSubagentMessageIndex(messages: ViewMessage[], description: string): number {
   for (let i = 0; i < messages.length; i++) {
     const msg = messages[i];
     if (msg.type !== "assistant") continue;
     for (const block of msg.content) {
       if (
-        block.type === "tool_use" &&
+        block.type === "toolCall" &&
         block.name === "Agent" &&
         (block.input as { description?: string })?.description === description
       ) {
@@ -94,7 +94,7 @@ export function LiveConversationView() {
   const setView = useAppStore((s) => s.setView);
   const setWatchedSessionId = useLiveStore((s) => s.setWatchedSessionId);
 
-  const [messages, setMessages] = useState<ParsedMessage[]>([]);
+  const [messages, setMessages] = useState<ViewMessage[]>([]);
   const [subagents, setSubagents] = useState<SubagentSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [showTagManager, setShowTagManager] = useState(false);
@@ -113,7 +113,7 @@ export function LiveConversationView() {
   const atBottomRef = useRef(true);
 
   // Batched incoming messages (task #11 inlined)
-  const pendingRef = useRef<ParsedMessage[]>([]);
+  const pendingRef = useRef<ViewMessage[]>([]);
   const flushScheduledRef = useRef(false);
 
   const liveSession = liveSessions.find((s) => s.sessionId === watchedSessionId);

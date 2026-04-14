@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { getSubagentMessages } from "../../lib/tauri";
-import type { ParsedMessage, SubagentSummary } from "../../lib/types";
+import type { ViewMessage, SubagentSummary } from "../../lib/types";
 import { MessageBubble } from "./MessageBubble";
 
 interface Props {
@@ -10,7 +10,7 @@ interface Props {
 
 export function SubagentView({ subagent, onLocate }: Props) {
   const [expanded, setExpanded] = useState(false);
-  const [messages, setMessages] = useState<ParsedMessage[]>([]);
+  const [messages, setMessages] = useState<ViewMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   const handleExpand = async () => {

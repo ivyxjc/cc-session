@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { listBackups, listSessions, backupAllSessions, restoreSessionBackup, deleteBackup, getBackupMessages } from "../../lib/tauri";
-import type { Backup, ParsedMessage, SessionSummary } from "../../lib/types";
+import type { Backup, ViewMessage, SessionSummary } from "../../lib/types";
 import { formatDateTime, formatFileSize, formatRelativeTime } from "../../lib/format";
 import { BackupConfigPanel } from "./BackupConfigPanel";
 import { MessageBubble } from "../message/MessageBubble";
@@ -18,7 +18,7 @@ export function BackupManager() {
   const [backing, setBacking] = useState(false);
   const [expandedSessions, setExpandedSessions] = useState<Set<number>>(new Set());
   const [viewingBackup, setViewingBackup] = useState<Backup | null>(null);
-  const [viewMessages, setViewMessages] = useState<ParsedMessage[]>([]);
+  const [viewMessages, setViewMessages] = useState<ViewMessage[]>([]);
   const [viewLoading, setViewLoading] = useState(false);
 
   const load = async () => {

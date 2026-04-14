@@ -1,4 +1,4 @@
-import type { ParsedMessage, ContentBlock } from "./types";
+import type { ViewMessage, ViewContentBlock } from "./types";
 
 export interface ToolResult {
   content: string;
@@ -9,17 +9,17 @@ export interface ToolResult {
  * Build a map of tool_use_id -> tool result from a list of messages.
  * tool_result blocks live inside user messages as responses to assistant tool_use blocks.
  */
-export function buildToolResultsMap(messages: ParsedMessage[]): Map<string, ToolResult> {
+export function buildToolResultsMap(messages: ViewMessage[]): Map<string, ToolResult> {
   const map = new Map<string, ToolResult>();
 
   for (const msg of messages) {
     if (msg.type !== "user") continue;
     for (const block of msg.content) {
-      if (block.type === "tool_result" && block.tool_use_id) {
+      if (block.type === "toolResult" && block.toolCallId) {
         const content = extractToolResultContent(block);
-        map.set(block.tool_use_id, {
+        map.set(block.toolCallId, {
           content,
-          isError: block.is_error ?? false,
+          isError: block.isError ?? false,
         });
       }
     }
@@ -28,7 +28,7 @@ export function buildToolResultsMap(messages: ParsedMessage[]): Map<string, Tool
   return map;
 }
 
-function extractToolResultContent(block: ContentBlock): string {
+function extractToolResultContent(block: ViewContentBlock): string {
   // tool_result content can be a string or an array of content blocks
   const raw = block.content;
   if (typeof raw === "string") return raw;

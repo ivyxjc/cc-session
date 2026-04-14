@@ -4,6 +4,8 @@ mod scanner;
 mod commands;
 mod backup;
 mod monitor;
+mod models;
+mod claude;
 
 use db::Database;
 use monitor::LiveMonitor;

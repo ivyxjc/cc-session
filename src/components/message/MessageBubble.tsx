@@ -1,7 +1,7 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ParsedMessage, ContentBlock, SubagentSummary } from "../../lib/types";
+import type { ViewMessage, ViewContentBlock, SubagentSummary } from "../../lib/types";
 import type { ToolResult } from "../../lib/toolResults";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallBlock } from "./ToolCallBlock";
@@ -10,7 +10,7 @@ import { CodeBlock } from "./CodeBlock";
 import { extractImagePath, ImageFromPath } from "./ImageFromPath";
 
 function renderContentBlock(
-  block: ContentBlock,
+  block: ViewContentBlock,
   index: number,
   subagents?: SubagentSummary[],
   toolResults?: Map<string, ToolResult>,
@@ -53,11 +53,11 @@ function renderContentBlock(
 
     case "image": {
       const src = block.source;
-      if (src?.type === "base64" && src.data && src.media_type) {
+      if (src?.sourceType === "base64" && src.data && src.mediaType) {
         return (
           <div key={index} className="my-1">
             <img
-              src={`data:${src.media_type};base64,${src.data}`}
+              src={`data:${src.mediaType};base64,${src.data}`}
               alt="User image"
               className="max-w-full max-h-96 rounded border border-zinc-200 dark:border-zinc-700"
               loading="lazy"
@@ -68,7 +68,7 @@ function renderContentBlock(
       return null;
     }
 
-    case "tool_use": {
+    case "toolCall": {
       // Special case: Edit tool -- show diff
       if (block.name === "Edit" && block.input) {
         const input = block.input as { file_path?: string; old_string?: string; new_string?: string };
@@ -93,17 +93,17 @@ function renderContentBlock(
 }
 
 interface Props {
-  message: ParsedMessage;
+  message: ViewMessage;
   subagents?: SubagentSummary[];
   toolResults?: Map<string, ToolResult>;
 }
 
 export const MessageBubble = memo(function MessageBubble({ message, subagents, toolResults }: Props) {
-  if (message.type === "permissionMode" || message.type === "fileHistorySnapshot" || message.type === "attachment") {
-    return null;
-  }
-
   if (message.type === "system") {
+    // Skip attachment, permissionMode, fileHistorySnapshot subtypes
+    if (message.subtype === "attachment" || message.subtype === "permissionMode" || message.subtype === "fileHistorySnapshot") {
+      return null;
+    }
     if (!message.content) return null;
     return (
       <div className="text-xs text-zinc-400 italic py-1">
@@ -114,8 +114,8 @@ export const MessageBubble = memo(function MessageBubble({ message, subagents, t
 
   const isUser = message.type === "user";
 
-  // Skip user messages that only contain tool_result blocks (automatic tool responses, not real user input)
-  if (isUser && message.content.length > 0 && message.content.every((b) => b.type === "tool_result")) {
+  // Skip user messages that only contain toolResult blocks (automatic tool responses, not real user input)
+  if (isUser && message.content.length > 0 && message.content.every((b) => b.type === "toolResult")) {
     return null;
   }
 
