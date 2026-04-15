@@ -13,9 +13,8 @@ export function CodexSessionList() {
   const [showArchived, setShowArchived] = useState(false);
 
   useEffect(() => {
-    if (!selectedCodexCwd) return;
     setLoading(true);
-    codexListSessions({ cwd: selectedCodexCwd, showArchived }).then((data) => {
+    codexListSessions({ cwd: selectedCodexCwd ?? undefined, showArchived }).then((data) => {
       setSessions(data);
       setLoading(false);
     }).catch((e) => {
@@ -24,17 +23,20 @@ export function CodexSessionList() {
     });
   }, [selectedCodexCwd, showArchived]);
 
-  const displayName = selectedCodexCwd?.split("/").pop() || "Codex Sessions";
+  const isAllSessions = !selectedCodexCwd;
+  const displayName = isAllSessions ? "All Codex Sessions" : selectedCodexCwd?.split("/").pop() || "Sessions";
 
   return (
     <div className="p-6 h-full overflow-y-auto">
       <div className="flex items-center gap-2 mb-4">
-        <button
-          onClick={() => setView("codexProjects")}
-          className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
-        >
-          &larr; Projects
-        </button>
+        {!isAllSessions && (
+          <button
+            onClick={() => setView("codexProjects")}
+            className="text-sm text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300"
+          >
+            &larr; Projects
+          </button>
+        )}
         <h1 className="text-xl font-semibold">{displayName}</h1>
         <span className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full font-medium">
           Codex
@@ -50,7 +52,7 @@ export function CodexSessionList() {
           Show archived
         </label>
       </div>
-      <div className="text-xs text-zinc-400 mb-3 truncate">{selectedCodexCwd}</div>
+      {selectedCodexCwd && <div className="text-xs text-zinc-400 mb-3 truncate">{selectedCodexCwd}</div>}
 
       {loading ? (
         <div className="text-zinc-500">Loading sessions...</div>

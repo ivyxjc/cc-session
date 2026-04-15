@@ -194,6 +194,12 @@ export function Sidebar() {
           >
             All Projects
           </button>
+          <button
+            onClick={() => { useAppStore.setState({ selectedCodexCwd: null }); setView("codexSessions"); }}
+            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "codexSessions" && !selectedCodexCwd ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+          >
+            All Sessions
+          </button>
         </nav>
       )}
 

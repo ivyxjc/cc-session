@@ -65,6 +65,13 @@ export function ToolCallBlock({ block, subagents, toolResult }: Props) {
       summary = (input as { description?: string }).description || "";
       break;
     }
+    case "exec_command": {
+      const cmd = (input as { cmd?: string }).cmd || "";
+      summary = cmd.split("\n")[0];
+      codeContent = cmd;
+      language = "bash";
+      break;
+    }
     default: {
       summary = JSON.stringify(input).slice(0, 100);
     }
