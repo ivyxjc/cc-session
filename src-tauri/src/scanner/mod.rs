@@ -13,7 +13,7 @@ fn get_claude_dir() -> PathBuf {
     dirs::home_dir().unwrap_or_default().join(".claude")
 }
 
-fn encode_path(path: &str) -> String {
+pub fn encode_path(path: &str) -> String {
     // Claude Code encodes paths by replacing '/' and '.' with '-'
     // "/Users/ivyxjc/simora.main" -> "-Users-ivyxjc-simora-main"
     path.replace('/', "-").replace('.', "-")

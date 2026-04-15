@@ -144,6 +144,13 @@ export const getDailyUsage = (days?: number) =>
 export const copySessionToPath = (sessionId: number, targetPath: string) =>
   invoke<string>("copy_session_to_path", { sessionId, targetPath });
 
+// Export
+export const exportSession = (sessionId: number, projectPath: string, targetPath: string) =>
+  invoke<void>("export_session", { sessionId, projectPath, targetPath });
+
+export const exportCodexSession = (threadId: string, targetPath: string) =>
+  invoke<void>("export_codex_session", { threadId, targetPath });
+
 // Images
 export const readImageFile = (path: string) =>
   invoke<string>("read_image_file", { path });

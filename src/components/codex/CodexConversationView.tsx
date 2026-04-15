@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
-import { codexGetSession, codexGetLatestMessages, codexGetMessages, codexGetSubagents, codexGetSubagentMessages } from "../../lib/tauri";
+import { codexGetSession, codexGetLatestMessages, codexGetMessages, codexGetSubagents, codexGetSubagentMessages, exportCodexSession } from "../../lib/tauri";
+import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import type { ViewMessage, CodexSession, CodexSubagent } from "../../lib/types";
 import type { ToolResult } from "../../lib/toolResults";
 import { formatTokens, formatRelativeTime } from "../../lib/format";
@@ -47,6 +48,7 @@ export function CodexConversationView() {
   const [subagents, setSubagents] = useState<CodexSubagent[]>([]);
   const [loading, setLoading] = useState(true);
   const [subagentsExpanded, setSubagentsExpanded] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const [firstItemIndex, setFirstItemIndex] = useState(0);
   const loadingOlderRef = useRef(false);
@@ -116,6 +118,32 @@ export function CodexConversationView() {
           <span className="text-xs text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950 px-2 py-0.5 rounded-full font-medium">
             Codex
           </span>
+          <div className="flex-1" />
+          <button
+            onClick={async () => {
+              if (!selectedCodexThreadId) return;
+              const slug = session?.title?.slice(0, 30).replace(/[^a-zA-Z0-9]/g, "_") || selectedCodexThreadId.slice(0, 8);
+              const defaultDir = session?.cwd || "";
+              const filePath = await saveDialog({
+                defaultPath: defaultDir ? `${defaultDir}/${slug}.zip` : `${slug}.zip`,
+                filters: [{ name: "ZIP", extensions: ["zip"] }],
+              });
+              if (filePath) {
+                setExporting(true);
+                try {
+                  await exportCodexSession(selectedCodexThreadId, filePath as string);
+                  alert("Export successful!");
+                } catch (e) {
+                  alert(`Export failed: ${e}`);
+                }
+                setExporting(false);
+              }
+            }}
+            disabled={exporting}
+            className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {exporting ? "Exporting..." : "Export zip"}
+          </button>
           {session?.source && (
             <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
               session.source === "cli" ? "text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950" :

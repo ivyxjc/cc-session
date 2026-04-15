@@ -1,8 +1,8 @@
 import { useState } from "react";
 import type { SessionSummary } from "../../lib/types";
 import { formatDateTime, formatTokens, formatFileSize } from "../../lib/format";
-import { backupSession, copySessionToPath } from "../../lib/tauri";
-import { open } from "@tauri-apps/plugin-dialog";
+import { backupSession, copySessionToPath, exportSession } from "../../lib/tauri";
+import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { CopyText } from "../common/CopyText";
 import { FavoriteButton } from "../common/FavoriteButton";
 import { OpenTerminalButton } from "../common/OpenTerminalButton";
@@ -16,6 +16,9 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
   const [showTagManager, setShowTagManager] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [copying, setCopying] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showExportDialog, setShowExportDialog] = useState(false);
+  const [exportProjectPath, setExportProjectPath] = useState("");
 
   const handleBackup = async () => {
     setBackingUp(true);
@@ -64,6 +67,16 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
         >
           {copying ? "Copying..." : "Copy to path"}
         </button>
+        <button
+          onClick={() => {
+            setExportProjectPath(session.projectPath || "");
+            setShowExportDialog(true);
+          }}
+          disabled={exporting}
+          className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+        >
+          {exporting ? "Exporting..." : "Export zip"}
+        </button>
         <div className="relative">
           <button
             onClick={() => setShowTagManager(!showTagManager)}
@@ -102,6 +115,74 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
       {session.tags.length > 0 && (
         <div className="flex gap-1 mt-2">
           {session.tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)}
+        </div>
+      )}
+      {/* Export path dialog */}
+      {showExportDialog && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 rounded-lg shadow-xl p-4 w-[480px]">
+            <div className="text-sm font-medium mb-2">Target project path</div>
+            <div className="text-xs text-zinc-400 mb-3">This path will be encoded as the directory name inside the zip. On the target machine, unzip into ~/.claude/projects/ to import.</div>
+            <input
+              type="text"
+              value={exportProjectPath}
+              onChange={(e) => setExportProjectPath(e.target.value)}
+              onKeyDown={async (e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  setShowExportDialog(false);
+                  const slug = session.slug || session.sessionId.slice(0, 8);
+                  const filePath = await saveDialog({
+                    defaultPath: `${exportProjectPath}/${slug}.zip`,
+                    filters: [{ name: "ZIP", extensions: ["zip"] }],
+                  });
+                  if (filePath) {
+                    setExporting(true);
+                    try {
+                      await exportSession(session.id, exportProjectPath, filePath as string);
+                      alert("Export successful!");
+                    } catch (e2) {
+                      alert(`Export failed: ${e2}`);
+                    }
+                    setExporting(false);
+                  }
+                }
+              }}
+              autoFocus
+              className="w-full px-3 py-1.5 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm font-mono focus:outline-none focus:border-zinc-500"
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                onClick={() => setShowExportDialog(false)}
+                className="text-sm px-3 py-1 rounded border border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setShowExportDialog(false);
+                  const slug = session.slug || session.sessionId.slice(0, 8);
+                  const filePath = await saveDialog({
+                    defaultPath: `${exportProjectPath}/${slug}.zip`,
+                    filters: [{ name: "ZIP", extensions: ["zip"] }],
+                  });
+                  if (filePath) {
+                    setExporting(true);
+                    try {
+                      await exportSession(session.id, exportProjectPath, filePath as string);
+                      alert("Export successful!");
+                    } catch (e2) {
+                      alert(`Export failed: ${e2}`);
+                    }
+                    setExporting(false);
+                  }
+                }}
+                className="text-sm px-3 py-1 rounded bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300"
+              >
+                Export
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

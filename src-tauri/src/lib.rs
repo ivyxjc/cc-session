@@ -72,6 +72,8 @@ pub fn run() {
             commands::settings_io::import_settings_from_file,
             commands::copy_session::copy_session_to_path,
             commands::usage::get_daily_usage,
+            commands::export::export_session,
+            commands::export::export_codex_session,
             codex::commands::codex_get_session,
             codex::commands::codex_list_projects,
             codex::commands::codex_list_sessions,
