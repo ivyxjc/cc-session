@@ -7,6 +7,7 @@ import { useLiveStore } from "../../stores/liveStore";
 import { useAppStore } from "../../stores/appStore";
 import { formatTokens, formatFileSize } from "../../lib/format";
 import { backupSession } from "../../lib/tauri";
+import { toast } from "../../stores/toastStore";
 import { MessageBubble } from "../message/MessageBubble";
 import { SubagentView } from "../message/SubagentView";
 import { CopyText } from "../common/CopyText";
@@ -251,7 +252,12 @@ export function LiveConversationView() {
             <button
               onClick={async () => {
                 setBackingUp(true);
-                try { await backupSession(liveSession.dbSessionId!); } finally { setBackingUp(false); }
+                try {
+                  await backupSession(liveSession.dbSessionId!);
+                  toast.success("Backup successful!");
+                } catch (e) {
+                  toast.error(`Backup failed: ${e}`);
+                } finally { setBackingUp(false); }
               }}
               disabled={backingUp}
               className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"

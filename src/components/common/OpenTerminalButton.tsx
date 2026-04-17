@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { openTerminal, getTerminalConfig } from "../../lib/tauri";
 import type { TerminalConfig } from "../../lib/types";
+import { toast } from "../../stores/toastStore";
 
 export function OpenTerminalButton({ path, sessionId }: { path: string; sessionId?: string }) {
   const [config, setConfig] = useState<TerminalConfig | null>(null);
@@ -17,7 +18,7 @@ export function OpenTerminalButton({ path, sessionId }: { path: string; sessionI
     }
     openTerminal(path, terminalName).catch((err) => {
       console.error("open_terminal failed:", err);
-      alert(`Failed to open terminal: ${err}`);
+      toast.error(`Failed to open terminal: ${err}`);
     });
   };
 

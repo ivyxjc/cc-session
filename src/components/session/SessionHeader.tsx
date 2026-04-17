@@ -3,6 +3,7 @@ import type { SessionSummary } from "../../lib/types";
 import { formatDateTime, formatTokens, formatFileSize } from "../../lib/format";
 import { backupSession, copySessionToPath, exportSession } from "../../lib/tauri";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { toast } from "../../stores/toastStore";
 import { CopyText } from "../common/CopyText";
 import { FavoriteButton } from "../common/FavoriteButton";
 import { OpenTerminalButton } from "../common/OpenTerminalButton";
@@ -24,6 +25,9 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
     setBackingUp(true);
     try {
       await backupSession(session.id);
+      toast.success("Backup successful!");
+    } catch (e) {
+      toast.error(`Backup failed: ${e}`);
     } finally {
       setBackingUp(false);
     }
@@ -140,9 +144,9 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
                     setExporting(true);
                     try {
                       await exportSession(session.id, exportProjectPath, filePath as string);
-                      alert("Export successful!");
+                      toast.success("Export successful!");
                     } catch (e2) {
-                      alert(`Export failed: ${e2}`);
+                      toast.error(`Export failed: ${e2}`);
                     }
                     setExporting(false);
                   }
@@ -170,9 +174,9 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
                     setExporting(true);
                     try {
                       await exportSession(session.id, exportProjectPath, filePath as string);
-                      alert("Export successful!");
+                      toast.success("Export successful!");
                     } catch (e2) {
-                      alert(`Export failed: ${e2}`);
+                      toast.error(`Export failed: ${e2}`);
                     }
                     setExporting(false);
                   }

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { toast } from "../../stores/toastStore";
 import { getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand, getMultiplexerConfig, setMultiplexerConfig, getAutoHideConfig, setAutoHideConfig, exportSettingsToFile, importSettingsFromFile } from "../../lib/tauri";
 import { setLocale as setGlobalLocale } from "../../lib/format";
 import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig } from "../../lib/types";
@@ -340,7 +341,7 @@ export function SettingsPage() {
                 getMultiplexerConfig().then(setMuxConfig);
                 getAutoHideConfig().then(setAutoHideConfigState);
               } catch (e) {
-                alert(`Import failed: ${e}`);
+                toast.error(`Import failed: ${e}`);
               }
             }
           }}

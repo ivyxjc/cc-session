@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { codexGetSession, codexGetLatestMessages, codexGetMessages, codexGetSubagents, codexGetSubagentMessages, exportCodexSession } from "../../lib/tauri";
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { toast } from "../../stores/toastStore";
 import type { ViewMessage, CodexSession, CodexSubagent } from "../../lib/types";
 import type { ToolResult } from "../../lib/toolResults";
 import { formatTokens, formatRelativeTime } from "../../lib/format";
@@ -132,9 +133,9 @@ export function CodexConversationView() {
                 setExporting(true);
                 try {
                   await exportCodexSession(selectedCodexThreadId, filePath as string);
-                  alert("Export successful!");
+                  toast.success("Export successful!");
                 } catch (e) {
-                  alert(`Export failed: ${e}`);
+                  toast.error(`Export failed: ${e}`);
                 }
                 setExporting(false);
               }

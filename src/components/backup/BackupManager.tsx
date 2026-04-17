@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { listBackups, listSessions, backupAllSessions, restoreSessionBackup, deleteBackup, getBackupMessages } from "../../lib/tauri";
 import type { Backup, ViewMessage, SessionSummary } from "../../lib/types";
 import { formatDateTime, formatFileSize, formatRelativeTime } from "../../lib/format";
+import { toast } from "../../stores/toastStore";
 import { BackupConfigPanel } from "./BackupConfigPanel";
 import { MessageBubble } from "../message/MessageBubble";
 
@@ -66,7 +67,12 @@ export function BackupManager() {
 
   const handleBackupAll = async () => {
     setBacking(true);
-    await backupAllSessions();
+    try {
+      await backupAllSessions();
+      toast.success("All sessions backed up!");
+    } catch (e) {
+      toast.error(`Backup failed: ${e}`);
+    }
     await load();
     setBacking(false);
   };
@@ -74,7 +80,7 @@ export function BackupManager() {
   const handleRestore = async (backupId: number) => {
     if (!confirm("Restore this backup? It will copy the session back to ~/.claude/projects/.")) return;
     await restoreSessionBackup(backupId);
-    alert("Restored successfully. Use `claude -c` in the project directory to resume.");
+    toast.success("Restored successfully. Use `claude -c` in the project directory to resume.");
   };
 
   const handleDelete = async (backupId: number) => {

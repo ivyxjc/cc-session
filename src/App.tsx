@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { Sidebar } from "./components/layout/Sidebar";
 import { MainContent } from "./components/layout/MainContent";
+import { ToastContainer } from "./components/common/ToastContainer";
 
 export default function App() {
   const [sidebarWidth, setSidebarWidth] = useState(240);
@@ -30,6 +31,7 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-white dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100">
+      <ToastContainer />
       <div style={{ width: sidebarWidth, minWidth: sidebarWidth }}>
         <Sidebar />
       </div>
