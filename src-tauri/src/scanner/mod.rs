@@ -230,14 +230,17 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                     .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
                     .map(|dt| dt.timestamp_millis());
 
+                let now_ms = chrono::Utc::now().timestamp_millis();
                 conn.execute(
                     "INSERT INTO sessions (session_id, project_id, jsonl_path, slug, version,
                         permission_mode, git_branch, started_at, last_active,
                         message_count, user_msg_count, assistant_msg_count,
                         total_input_tokens, total_output_tokens,
                         total_cache_creation_tokens, total_cache_read_tokens,
-                        file_size, file_mtime, created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19)
+                        file_size, file_mtime,
+                        summary, summary_source, summary_at,
+                        created_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
                      ON CONFLICT(session_id) DO UPDATE SET
                         slug = excluded.slug,
                         version = excluded.version,
@@ -253,7 +256,13 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                         total_cache_creation_tokens = excluded.total_cache_creation_tokens,
                         total_cache_read_tokens = excluded.total_cache_read_tokens,
                         file_size = excluded.file_size,
-                        file_mtime = excluded.file_mtime",
+                        file_mtime = excluded.file_mtime,
+                        summary = CASE WHEN sessions.summary_source = 'llm'
+                                       THEN sessions.summary ELSE excluded.summary END,
+                        summary_source = CASE WHEN sessions.summary_source = 'llm'
+                                              THEN 'llm' ELSE excluded.summary_source END,
+                        summary_at = CASE WHEN sessions.summary_source = 'llm'
+                                          THEN sessions.summary_at ELSE excluded.summary_at END",
                     params![
                         session_id, project_id, jsonl_path_str,
                         parse_result.slug, parse_result.version,
@@ -263,7 +272,11 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                         parse_result.assistant_msg_count,
                         parse_result.total_input_tokens, parse_result.total_output_tokens,
                         parse_result.total_cache_creation_tokens, parse_result.total_cache_read_tokens,
-                        file_size, file_mtime, chrono::Utc::now().timestamp_millis(),
+                        file_size, file_mtime,
+                        parse_result.summary,
+                        parse_result.summary.as_ref().map(|_| "heuristic"),
+                        parse_result.summary.as_ref().map(|_| now_ms),
+                        now_ms,
                     ],
                 ).map_err(|e| format!("DB error: {}", e))?;
 

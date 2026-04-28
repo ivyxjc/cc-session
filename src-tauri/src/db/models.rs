@@ -39,6 +39,10 @@ pub struct SessionSummary {
     pub is_backed_up: bool,
     pub copied_from_session_id: Option<String>,
     pub copied_at: Option<i64>,
+    pub summary: Option<String>,
+    pub summary_source: Option<String>,
+    pub summary_at: Option<i64>,
+    pub ai_tags: Vec<String>,
     pub tags: Vec<Tag>,
 }
 

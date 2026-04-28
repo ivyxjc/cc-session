@@ -21,6 +21,7 @@ pub struct SessionParseResult {
     pub total_output_tokens: i64,
     pub total_cache_creation_tokens: i64,
     pub total_cache_read_tokens: i64,
+    pub summary: Option<String>,
 }
 
 /// Parse a session JSONL file and extract metadata for indexing.
@@ -43,6 +44,7 @@ pub fn parse_session_metadata(path: &Path) -> Result<SessionParseResult, String>
         total_output_tokens: 0,
         total_cache_creation_tokens: 0,
         total_cache_read_tokens: 0,
+        summary: None,
     };
 
     for line in reader.lines() {
@@ -99,6 +101,18 @@ pub fn parse_session_metadata(path: &Path) -> Result<SessionParseResult, String>
                     .unwrap_or(true); // string content = real user message
                 if is_real_user_msg {
                     result.user_msg_count += 1;
+                    // Compute heuristic summary from the first real user message
+                    if result.summary.is_none() {
+                        if let Some(text) = raw.message.as_ref()
+                            .and_then(|m| m.get("content"))
+                            .and_then(extract_first_user_text)
+                        {
+                            let cleaned = clean_summary_text(&text);
+                            if !cleaned.is_empty() {
+                                result.summary = Some(truncate_at_boundary(&cleaned, 100));
+                            }
+                        }
+                    }
                 }
             }
             "assistant" => {
@@ -290,4 +304,167 @@ pub fn extract_daily_tokens(path: &Path) -> Result<HashMap<String, DayTokens>, S
     }
 
     Ok(daily)
+}
+
+// ===== Heuristic session summary helpers =====
+
+/// Extract the first text content from a user message's `content` field.
+/// `content` may be a JSON string (legacy) or an array of blocks.
+/// Skips messages that are tool_result-only.
+fn extract_first_user_text(content: &serde_json::Value) -> Option<String> {
+    if let Some(s) = content.as_str() {
+        return Some(s.to_string());
+    }
+    let arr = content.as_array()?;
+    let has_text = arr.iter().any(|b| b.get("type").and_then(|v| v.as_str()) == Some("text"));
+    if !has_text {
+        return None; // tool_result-only — skip and let the next message be tried
+    }
+    for block in arr {
+        if block.get("type").and_then(|v| v.as_str()) == Some("text") {
+            if let Some(t) = block.get("text").and_then(|v| v.as_str()) {
+                return Some(t.to_string());
+            }
+        }
+    }
+    None
+}
+
+/// Clean a raw user message text for summary use:
+/// - strip Claude Code wrapper tags (system-reminder, local-command-stdout/stderr, command-message)
+/// - if it's a slash command, prefix with "/<name>" + args
+/// - normalize whitespace
+fn clean_summary_text(text: &str) -> String {
+    let mut s = text.to_string();
+    for tag in &[
+        "system-reminder",
+        "local-command-stdout",
+        "local-command-stderr",
+        "command-message",
+    ] {
+        s = strip_tag_with_content(&s, tag);
+    }
+
+    // Slash command handling
+    let cmd_name = extract_tag_content(&s, "command-name");
+    let cmd_args = extract_tag_content(&s, "command-args");
+    s = strip_tag_with_content(&s, "command-name");
+    s = strip_tag_with_content(&s, "command-args");
+
+    // Normalize whitespace (collapse runs of whitespace incl. newlines into single space)
+    let normalized: String = s.split_whitespace().collect::<Vec<_>>().join(" ");
+
+    if let Some(name) = cmd_name {
+        let name = name.trim();
+        if !name.is_empty() {
+            let mut out = format!("/{}", name);
+            if let Some(args) = cmd_args.as_deref().map(str::trim).filter(|x| !x.is_empty()) {
+                out.push(' ');
+                out.push_str(args);
+            }
+            if !normalized.is_empty() {
+                out.push(' ');
+                out.push_str(&normalized);
+            }
+            return out.trim().to_string();
+        }
+    }
+
+    normalized.trim().to_string()
+}
+
+/// Strip `<tag>...</tag>` (including content) from `s`, all occurrences.
+fn strip_tag_with_content(s: &str, tag: &str) -> String {
+    let open = format!("<{}>", tag);
+    let close = format!("</{}>", tag);
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+    while let Some(start) = rest.find(&open) {
+        out.push_str(&rest[..start]);
+        match rest[start..].find(&close) {
+            Some(end_off) => rest = &rest[start + end_off + close.len()..],
+            None => return out, // unclosed tag — drop everything from here on
+        }
+    }
+    out.push_str(rest);
+    out
+}
+
+/// Extract the content between `<tag>` and `</tag>` (first occurrence only).
+fn extract_tag_content(s: &str, tag: &str) -> Option<String> {
+    let open = format!("<{}>", tag);
+    let close = format!("</{}>", tag);
+    let start = s.find(&open)? + open.len();
+    let end_off = s[start..].find(&close)?;
+    Some(s[start..start + end_off].to_string())
+}
+
+/// Truncate a string to at most `max_chars` characters, preferring a sentence
+/// boundary (。！？.!?\n) within the last 30 chars before the cap.
+fn truncate_at_boundary(s: &str, max_chars: usize) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.len() <= max_chars {
+        return chars.into_iter().collect();
+    }
+    let boundary_chars = ['。', '！', '？', '.', '!', '?', '\n'];
+    let search_start = max_chars.saturating_sub(30);
+    for i in (search_start..max_chars).rev() {
+        if boundary_chars.contains(&chars[i]) {
+            let mut out: String = chars[..=i].iter().collect();
+            out.push('…');
+            return out;
+        }
+    }
+    let mut out: String = chars[..max_chars].iter().collect();
+    out.push('…');
+    out
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+
+    #[test]
+    fn plain_user_message() {
+        let r = clean_summary_text("帮我加一个搜索功能");
+        assert_eq!(r, "帮我加一个搜索功能");
+    }
+
+    #[test]
+    fn strips_system_reminder() {
+        let r = clean_summary_text("<system-reminder>noise</system-reminder>实际任务");
+        assert_eq!(r, "实际任务");
+    }
+
+    #[test]
+    fn slash_command_with_args() {
+        let r = clean_summary_text("<command-name>init</command-name><command-args>--force</command-args>");
+        assert_eq!(r, "/init --force");
+    }
+
+    #[test]
+    fn slash_command_bare() {
+        let r = clean_summary_text("<command-name>compact</command-name><command-args></command-args>");
+        assert_eq!(r, "/compact");
+    }
+
+    #[test]
+    fn collapses_whitespace() {
+        let r = clean_summary_text("行1\n\n  行2   行3");
+        assert_eq!(r, "行1 行2 行3");
+    }
+
+    #[test]
+    fn truncate_short_string_unchanged() {
+        let r = truncate_at_boundary("短文本", 100);
+        assert_eq!(r, "短文本");
+    }
+
+    #[test]
+    fn truncate_at_period() {
+        let s = "第一句话。第二句话内容很长很长很长很长。第三句也很长很长很长很长很长很长很长很长。";
+        let r = truncate_at_boundary(s, 20);
+        assert!(r.ends_with("…"));
+        assert!(r.contains("第一句话。"));
+    }
 }

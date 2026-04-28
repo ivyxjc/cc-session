@@ -33,6 +33,10 @@ export interface SessionSummary {
   isBackedUp: boolean;
   copiedFromSessionId: string | null;
   copiedAt: number | null;
+  summary: string | null;
+  summarySource: string | null;   // 'heuristic' | 'llm'
+  summaryAt: number | null;
+  aiTags: string[];
   tags: Tag[];
 }
 

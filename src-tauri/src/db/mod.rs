@@ -61,6 +61,11 @@ impl Database {
                 copied_from_session_id TEXT,
                 copied_at           INTEGER,
                 content_indexed_at  INTEGER DEFAULT 0,
+                summary             TEXT,
+                summary_source      TEXT,
+                summary_at          INTEGER,
+                summary_input_hash  TEXT,
+                ai_tags             TEXT,
                 created_at          INTEGER
             );
 
@@ -129,11 +134,16 @@ impl Database {
             );
         ")?;
 
-        // Self-healing: add column if missing on existing DBs (silently ignored if exists)
+        // Self-healing: add columns if missing on existing DBs (silently ignored if exists)
         let _ = conn.execute(
             "ALTER TABLE sessions ADD COLUMN content_indexed_at INTEGER DEFAULT 0",
             [],
         );
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN summary TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN summary_source TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN summary_at INTEGER", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN summary_input_hash TEXT", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN ai_tags TEXT", []);
 
         Ok(())
     }

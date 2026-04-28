@@ -11,18 +11,33 @@ import { TagBadge } from "../common/TagBadge";
 export function SessionCard({ session, onHide }: { session: SessionSummary; showHidden?: boolean; onHide?: () => void }) {
   const selectSession = useAppStore((s) => s.selectSession);
 
+  const summaryIsHeuristic = session.summarySource === "heuristic";
+
   return (
     <button
       onClick={() => selectSession(session.id)}
       className="w-full text-left p-4 rounded-lg border border-zinc-200 dark:border-zinc-800 hover:border-zinc-400 dark:hover:border-zinc-600 transition-colors"
     >
-      <div className="flex items-start justify-between">
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          <span className="font-medium truncate">{session.projectName}</span>
-          <CopyText text={session.sessionId} display={session.sessionId.slice(0, 8)} className="text-sm text-zinc-400 font-mono" />
-          <span className="text-sm text-zinc-500">{session.gitBranch || "\u2014"}</span>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 flex-1">
+          {session.summary ? (
+            <div
+              className={`text-sm font-medium truncate ${
+                summaryIsHeuristic
+                  ? "text-zinc-600 dark:text-zinc-400 italic"
+                  : "text-zinc-900 dark:text-zinc-100"
+              }`}
+              title={session.summary}
+            >
+              {session.summary}
+            </div>
+          ) : (
+            <div className="text-sm font-medium text-zinc-400 dark:text-zinc-500 italic truncate">
+              {session.slug || "[Untitled session]"}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-2 ml-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-zinc-400">{formatDateTime(session.lastActive)}</span>
           <OpenTerminalButton path={session.projectPath} sessionId={session.sessionId} />
           <MultiplexerButton path={session.projectPath} />
@@ -38,6 +53,11 @@ export function SessionCard({ session, onHide }: { session: SessionSummary; show
             {session.isHidden ? "Unhide" : "Hide"}
           </button>
         </div>
+      </div>
+      <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
+        <span className="truncate">{session.projectName}</span>
+        <CopyText text={session.sessionId} display={session.sessionId.slice(0, 8)} className="text-xs text-zinc-400 font-mono" />
+        <span className="truncate">{session.gitBranch || "\u2014"}</span>
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 truncate font-mono">
         {session.projectPath}

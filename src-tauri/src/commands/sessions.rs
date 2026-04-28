@@ -75,7 +75,8 @@ pub fn list_sessions(
                 s.total_input_tokens, s.total_output_tokens,
                 s.total_cache_creation_tokens, s.total_cache_read_tokens,
                 s.file_size, s.is_favorited, s.is_hidden, s.is_backed_up,
-                s.copied_from_session_id, s.copied_at
+                s.copied_from_session_id, s.copied_at,
+                s.summary, s.summary_source, s.summary_at, s.ai_tags
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
          LEFT JOIN session_tags st ON s.id = st.session_id
@@ -86,10 +87,14 @@ pub fn list_sessions(
     let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
     let mut stmt = conn.prepare(&query).map_err(|e| format!("DB error: {}", e))?;
 
-    let session_rows: Vec<(i64, String, i64, String, String, Option<String>, Option<String>,
+    type Row = (
+        i64, String, i64, String, String, Option<String>, Option<String>,
         Option<String>, Option<String>, Option<i64>, Option<i64>,
         i64, i64, i64, i64, i64, i64, i64, i64, bool, bool, bool,
-        Option<String>, Option<i64>)> = stmt.query_map(
+        Option<String>, Option<i64>,
+        Option<String>, Option<String>, Option<i64>, Option<String>,
+    );
+    let session_rows: Vec<Row> = stmt.query_map(
         params_ref.as_slice(),
         |row| {
             Ok((
@@ -99,6 +104,7 @@ pub fn list_sessions(
                 row.get(12)?, row.get(13)?, row.get(14)?, row.get(15)?,
                 row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?,
                 row.get(20)?, row.get(21)?, row.get(22)?, row.get(23)?,
+                row.get(24)?, row.get(25)?, row.get(26)?, row.get(27)?,
             ))
         },
     )
@@ -109,6 +115,10 @@ pub fn list_sessions(
     let mut sessions = Vec::new();
     for row in session_rows {
         let tags = get_session_tags(&conn, row.0)?;
+        let ai_tags: Vec<String> = row.27
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
         sessions.push(SessionSummary {
             id: row.0,
             session_id: row.1,
@@ -134,6 +144,10 @@ pub fn list_sessions(
             is_backed_up: row.21,
             copied_from_session_id: row.22,
             copied_at: row.23,
+            summary: row.24,
+            summary_source: row.25,
+            summary_at: row.26,
+            ai_tags,
             tags,
         });
     }
