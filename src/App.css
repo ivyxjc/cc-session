@@ -2,6 +2,11 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Custom code font — overridable via Settings */
+.font-mono {
+  font-family: var(--code-font, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace) !important;
+}
+
 @plugin "@tailwindcss/typography";
 
 /* Override prose pre styles — we control code block styling via CodeBlock component */

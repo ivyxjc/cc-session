@@ -8,6 +8,51 @@ import { ToolCallBlock } from "./ToolCallBlock";
 import { DiffView } from "./DiffView";
 import { CodeBlock } from "./CodeBlock";
 import { extractImagePath, ImageFromPath } from "./ImageFromPath";
+import { CopyButton } from "../common/CopyButton";
+
+function blockToText(block: ViewContentBlock): string {
+  switch (block.type) {
+    case "text":
+      return block.text || "";
+    case "thinking":
+      return block.thinking ? `[thinking]\n${block.thinking}` : "";
+    case "toolCall": {
+      const name = block.name || "tool";
+      const input = block.input ? JSON.stringify(block.input, null, 2) : "";
+      return input ? `[tool: ${name}]\n${input}` : `[tool: ${name}]`;
+    }
+    case "toolResult": {
+      const raw = block.content;
+      let content: string;
+      if (typeof raw === "string") {
+        content = raw;
+      } else if (Array.isArray(raw)) {
+        content = raw
+          .filter((b: Record<string, unknown>) => b.type === "text")
+          .map((b: Record<string, unknown>) => b.text || "")
+          .join("\n");
+      } else {
+        content = String(raw ?? "");
+      }
+      const prefix = block.isError ? "[tool result · error]" : "[tool result]";
+      return content ? `${prefix}\n${content}` : prefix;
+    }
+    case "image":
+      return "[image]";
+    default:
+      return "";
+  }
+}
+
+function messageToText(message: ViewMessage): string {
+  if (message.type === "system") {
+    return message.content || "";
+  }
+  return message.content
+    .map(blockToText)
+    .filter((s) => s.length > 0)
+    .join("\n\n");
+}
 
 function renderContentBlock(
   block: ViewContentBlock,
@@ -106,8 +151,13 @@ export const MessageBubble = memo(function MessageBubble({ message, subagents, t
     }
     if (!message.content) return null;
     return (
-      <div className="text-xs text-zinc-400 italic py-1">
-        {message.subtype && <span className="font-medium">[{message.subtype}]</span>} {message.content}
+      <div className="group flex items-start gap-1.5 text-xs text-zinc-400 italic py-1">
+        <div className="flex-1 min-w-0">
+          {message.subtype && <span className="font-medium">[{message.subtype}]</span>} {message.content}
+        </div>
+        <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          <CopyButton text={messageToText(message)} title="Copy message" />
+        </span>
       </div>
     );
   }
@@ -122,14 +172,19 @@ export const MessageBubble = memo(function MessageBubble({ message, subagents, t
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] rounded-lg p-3 space-y-2 ${
+        className={`group max-w-[85%] rounded-lg p-3 space-y-2 ${
           isUser
             ? "bg-zinc-200 dark:bg-zinc-700"
             : "bg-zinc-50 dark:bg-zinc-800 border border-zinc-200 dark:border-zinc-700"
         }`}
       >
-        <div className="text-xs font-medium text-zinc-500 mb-1">
-          {isUser ? "You" : `Claude${message.type === "assistant" && message.model ? ` (${message.model})` : ""}`}
+        <div className="flex items-center gap-2 mb-1">
+          <div className="text-xs font-medium text-zinc-500 flex-1 min-w-0 truncate">
+            {isUser ? "You" : `Claude${message.type === "assistant" && message.model ? ` (${message.model})` : ""}`}
+          </div>
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <CopyButton text={messageToText(message)} title="Copy message" />
+          </span>
         </div>
         {message.content.map((block, i) => renderContentBlock(block, i, subagents, toolResults))}
       </div>

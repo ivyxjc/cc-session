@@ -91,22 +91,30 @@ export function ConversationView() {
     setSubagentsExpanded(false);
 
     Promise.all([
-      listSessions({ projectId: undefined }).then((sessions) =>
+      listSessions({ projectId: undefined, showHidden: true }).then((sessions) =>
         sessions.find((s) => s.id === selectedSessionId) || null,
       ),
       getLatestMessages(selectedSessionId, INITIAL_LOAD),
       getSubagents(selectedSessionId),
-    ]).then(([sess, result, subs]) => {
-      const startOffset = result.totalCount - result.messages.length;
-      setSession(sess);
-      setMessages(result.messages);
-      setSubagents(subs);
-      setFirstItemIndex(startOffset);
-      earliestOffsetRef.current = startOffset;
-      hasOlderRef.current = startOffset > 0;
-      loadingOlderRef.current = false;
-      setLoading(false);
-    });
+    ])
+      .then(([sess, result, subs]) => {
+        const startOffset = result.totalCount - result.messages.length;
+        setSession(sess);
+        setMessages(result.messages);
+        setSubagents(subs);
+        setFirstItemIndex(startOffset);
+        earliestOffsetRef.current = startOffset;
+        hasOlderRef.current = startOffset > 0;
+        loadingOlderRef.current = false;
+        setLoading(false);
+      })
+      .catch((e) => {
+        console.error("Failed to load conversation:", e);
+        setSession(null);
+        setMessages([]);
+        setSubagents([]);
+        setLoading(false);
+      });
   }, [selectedSessionId]);
 
   const locateSubagent = useCallback(async (description: string) => {
@@ -151,8 +159,11 @@ export function ConversationView() {
     });
   }, [selectedSessionId]);
 
-  if (loading || !session) {
+  if (loading) {
     return <div className="p-6 text-zinc-500">Loading conversation...</div>;
+  }
+  if (!session) {
+    return <div className="p-6 text-zinc-500">Session not found.</div>;
   }
 
   return (

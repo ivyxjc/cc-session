@@ -3,6 +3,7 @@ import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "../../stores/toastStore";
 import { getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand, getMultiplexerConfig, setMultiplexerConfig, getAutoHideConfig, setAutoHideConfig, exportSettingsToFile, importSettingsFromFile } from "../../lib/tauri";
 import { setLocale as setGlobalLocale } from "../../lib/format";
+import { getUiFont, getCodeFont, getFontSize, setUiFont, setCodeFont, setFontSize } from "../../lib/fonts";
 import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig } from "../../lib/types";
 
 export function SettingsPage() {
@@ -12,6 +13,9 @@ export function SettingsPage() {
   const [muxConfig, setMuxConfig] = useState<MultiplexerConfig | null>(null);
   const [autoHideConfig, setAutoHideConfigState] = useState<AutoHideConfig | null>(null);
   const [locale, setLocale] = useState<string>(localStorage.getItem("locale") || "");
+  const [uiFont, setUiFontState] = useState(getUiFont());
+  const [codeFont, setCodeFontState] = useState(getCodeFont());
+  const [fontSize, setFontSizeState] = useState(getFontSize());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [migrating, setMigrating] = useState(false);
@@ -46,6 +50,11 @@ export function SettingsPage() {
     if (termConfig) await setTerminalConfig(termConfig);
     if (muxConfig) await setMultiplexerConfig(muxConfig);
     if (autoHideConfig) await setAutoHideConfig(autoHideConfig);
+
+    // Save fonts
+    setUiFont(uiFont);
+    setCodeFont(codeFont);
+    setFontSize(fontSize);
 
     // Save locale
     if (locale) {
@@ -198,6 +207,81 @@ export function SettingsPage() {
             />
           </div>
           <p className="text-xs text-zinc-400 mt-1">Leave empty for system default. Or enter any BCP 47 locale code (e.g. zh-TW, ko-KR).</p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">UI Font</label>
+          <div className="flex gap-2 mt-1 items-center">
+            <select
+              value={uiFont}
+              onChange={(e) => setUiFontState(e.target.value)}
+              className="flex-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            >
+              <option value="">System default</option>
+              <option value="Inter">Inter</option>
+              <option value="SF Pro Display">SF Pro Display</option>
+              <option value="Helvetica Neue">Helvetica Neue</option>
+              <option value="PingFang SC">PingFang SC</option>
+              <option value="Microsoft YaHei">Microsoft YaHei</option>
+              <option value="Noto Sans SC">Noto Sans SC</option>
+            </select>
+            <input
+              type="text"
+              value={uiFont}
+              onChange={(e) => setUiFontState(e.target.value)}
+              placeholder="or type font name"
+              className="w-40 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            />
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">Font for UI elements. Leave empty for system default.</p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Code Font</label>
+          <div className="flex gap-2 mt-1 items-center">
+            <select
+              value={codeFont}
+              onChange={(e) => setCodeFontState(e.target.value)}
+              className="flex-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            >
+              <option value="">System default</option>
+              <option value="JetBrains Mono">JetBrains Mono</option>
+              <option value="Fira Code">Fira Code</option>
+              <option value="Source Code Pro">Source Code Pro</option>
+              <option value="SF Mono">SF Mono</option>
+              <option value="Cascadia Code">Cascadia Code</option>
+              <option value="Monaco">Monaco</option>
+              <option value="Menlo">Menlo</option>
+            </select>
+            <input
+              type="text"
+              value={codeFont}
+              onChange={(e) => setCodeFontState(e.target.value)}
+              placeholder="or type font name"
+              className="w-40 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            />
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">Font for code blocks and monospace text. Leave empty for system default.</p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Font Size</label>
+          <div className="flex gap-2 mt-1 items-center">
+            <select
+              value={fontSize}
+              onChange={(e) => setFontSizeState(e.target.value)}
+              className="flex-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            >
+              <option value="">Default (16px)</option>
+              <option value="12px">12px</option>
+              <option value="13px">13px</option>
+              <option value="14px">14px</option>
+              <option value="15px">15px</option>
+              <option value="16px">16px</option>
+              <option value="18px">18px</option>
+            </select>
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">Base font size for the entire app.</p>
         </div>
       </section>
 

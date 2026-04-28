@@ -19,12 +19,15 @@ pub fn copy_session_to_path(
 ) -> Result<String, String> {
     let conn = db.conn();
 
-    // 1. Look up source session
-    let (source_uuid, source_jsonl): (String, String) = conn
+    // 1. Look up source session (and its project's original_path for cwd rewriting)
+    let (source_uuid, source_jsonl, source_cwd): (String, String, String) = conn
         .query_row(
-            "SELECT session_id, jsonl_path FROM sessions WHERE id = ?1",
+            "SELECT s.session_id, s.jsonl_path, p.original_path
+             FROM sessions s
+             JOIN projects p ON s.project_id = p.id
+             WHERE s.id = ?1",
             params![session_id],
-            |row| Ok((row.get(0)?, row.get(1)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
         )
         .map_err(|e| format!("Session not found: {}", e))?;
 
@@ -78,6 +81,13 @@ pub fn copy_session_to_path(
                         obj.insert(
                             "session_id".to_string(),
                             serde_json::Value::String(new_uuid.clone()),
+                        );
+                    }
+                    // Rewrite cwd so that resumed sessions operate in the new directory
+                    if obj.get("cwd").and_then(|v| v.as_str()) == Some(&source_cwd) {
+                        obj.insert(
+                            "cwd".to_string(),
+                            serde_json::Value::String(target_path.clone()),
                         );
                     }
                 }
