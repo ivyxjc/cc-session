@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { SessionSummary } from "../../lib/types";
 import { formatDateTime, formatTokens, formatFileSize } from "../../lib/format";
-import { backupSession, copySessionToPath, exportSession } from "../../lib/tauri";
+import { backupSession, copySessionToPath, exportSession, generateAiSummary } from "../../lib/tauri";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "../../stores/toastStore";
 import { CopyText } from "../common/CopyText";
@@ -18,6 +18,7 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
   const [backingUp, setBackingUp] = useState(false);
   const [copying, setCopying] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [generatingAi, setGeneratingAi] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportProjectPath, setExportProjectPath] = useState("");
 
@@ -44,6 +45,29 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
           &larr; Back
         </button>
         <div className="flex-1" />
+        <button
+          onClick={async () => {
+            setGeneratingAi(true);
+            try {
+              const r = await generateAiSummary(session.id, true);
+              if (r.summary) {
+                toast.success(`AI summary: ${r.summary}`);
+              } else {
+                toast.success("AI summary unchanged (no new content)");
+              }
+              onRefresh?.();
+            } catch (e) {
+              toast.error(`AI summary failed: ${e}`);
+            } finally {
+              setGeneratingAi(false);
+            }
+          }}
+          disabled={generatingAi}
+          className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+          title="Generate AI summary for this session"
+        >
+          {generatingAi ? "Generating..." : "AI Summary"}
+        </button>
         <button
           onClick={handleBackup}
           disabled={backingUp}
@@ -102,7 +126,13 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
         <MultiplexerButton path={session.projectPath} />
         <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
       </div>
-      <h1 className="text-lg font-semibold mt-2">{session.projectName}</h1>
+      <h1
+        className={`text-lg font-semibold mt-2 break-words ${
+          session.summary && session.summarySource === "heuristic" ? "italic text-zinc-600 dark:text-zinc-400" : ""
+        }`}
+      >
+        {session.summary || session.projectName}
+      </h1>
       <CopyText text={session.sessionId} className="text-sm text-zinc-400 font-mono" />
       <div className="text-sm text-zinc-500 mt-0.5">
         {session.projectName} &middot; {session.gitBranch || "\u2014"} &middot; {session.version || "\u2014"} &middot; {session.permissionMode || "default"}
@@ -116,9 +146,18 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
           Copied from <CopyText text={session.copiedFromSessionId} display={session.copiedFromSessionId.slice(0, 8)} className="text-xs text-zinc-400 font-mono" />
         </div>
       )}
-      {session.tags.length > 0 && (
-        <div className="flex gap-1 mt-2">
+      {(session.tags.length > 0 || session.aiTags.length > 0) && (
+        <div className="flex gap-1 mt-2 flex-wrap">
           {session.tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)}
+          {session.aiTags.map((tag) => (
+            <span
+              key={`ai-${tag}`}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400"
+              title="AI-generated tag"
+            >
+              <span className="text-[10px] opacity-70">AI</span>{tag}
+            </span>
+          ))}
         </div>
       )}
       {/* Export path dialog */}

@@ -41,6 +41,48 @@ pub struct ImageSource {
     pub data: Option<String>,
 }
 
+#[cfg(test)]
+mod thinking_roundtrip {
+    use super::*;
+
+    #[test]
+    fn deserialize_thinking_block_from_jsonl_shape() {
+        let raw = r#"{"type":"thinking","thinking":"reasoning text","signature":"abc"}"#;
+        let parsed: ContentBlock = serde_json::from_str(raw).expect("deserialize");
+        match parsed {
+            ContentBlock::Thinking { thinking, .. } => {
+                assert_eq!(thinking, "reasoning text", "thinking text should be preserved");
+            }
+            _ => panic!("expected Thinking variant, got {:?}", parsed),
+        }
+    }
+
+    #[test]
+    fn deserialize_thinking_block_no_signature() {
+        let raw = r#"{"type":"thinking","thinking":"reasoning"}"#;
+        let parsed: ContentBlock = serde_json::from_str(raw).expect("deserialize");
+        match parsed {
+            ContentBlock::Thinking { thinking, signature } => {
+                assert_eq!(thinking, "reasoning");
+                assert!(signature.is_none());
+            }
+            _ => panic!("expected Thinking variant"),
+        }
+    }
+
+    #[test]
+    fn end_to_end_thinking_roundtrip_to_view_block() {
+        use crate::claude::converter::to_view_content_block;
+        let raw = r#"{"type":"thinking","thinking":"abc","signature":"sig"}"#;
+        let parsed: ContentBlock = serde_json::from_str(raw).expect("deserialize");
+        let view = to_view_content_block(parsed);
+        let serialized = serde_json::to_string(&view).expect("serialize view");
+        // What the frontend actually sees
+        assert!(serialized.contains("\"thinking\":\"abc\""), "got: {}", serialized);
+        assert!(serialized.contains("\"type\":\"thinking\""), "got: {}", serialized);
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Usage {

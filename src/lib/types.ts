@@ -152,6 +152,27 @@ export interface MultiplexerDetectionResult {
   newSessionCmd: string;
 }
 
+export interface AiSummaryConfig {
+  baseUrl: string;
+  apiKey: string;
+  model: string;
+}
+
+export interface AiSummaryResult {
+  generated: boolean;
+  summary: string | null;
+  tags: string[] | null;
+}
+
+export interface AiSummaryProgress {
+  current: number;
+  total: number;
+  sessionDbId: number;
+  status: "ok" | "skipped" | "error";
+  error: string | null;
+  summary: string | null;
+}
+
 export interface ContentSearchResult {
   sessionDbId: number;
   sessionId: string;

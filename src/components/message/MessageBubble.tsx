@@ -93,8 +93,20 @@ function renderContentBlock(
       );
     }
 
-    case "thinking":
-      return <ThinkingBlock key={index} thinking={block.thinking || ""} />;
+    case "thinking": {
+      // Claude Opus extended thinking can return "redacted" blocks:
+      // empty `thinking` text + non-empty `signature` (encrypted reasoning).
+      // Show a compact placeholder so the user knows reasoning happened, but skip the empty expander.
+      const text = block.thinking || "";
+      if (!text.trim()) {
+        return (
+          <div key={index} className="text-xs text-zinc-400 italic px-2 py-1">
+            (redacted thinking)
+          </div>
+        );
+      }
+      return <ThinkingBlock key={index} thinking={text} />;
+    }
 
     case "image": {
       const src = block.source;

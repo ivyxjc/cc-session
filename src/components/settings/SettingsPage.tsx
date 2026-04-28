@@ -1,10 +1,16 @@
 import { useState, useEffect } from "react";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { listen } from "@tauri-apps/api/event";
 import { toast } from "../../stores/toastStore";
-import { getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand, getMultiplexerConfig, setMultiplexerConfig, getAutoHideConfig, setAutoHideConfig, exportSettingsToFile, importSettingsFromFile } from "../../lib/tauri";
+import {
+  getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand,
+  getMultiplexerConfig, setMultiplexerConfig, getAutoHideConfig, setAutoHideConfig,
+  exportSettingsToFile, importSettingsFromFile,
+  getAiSummaryConfig, setAiSummaryConfig, testAiSummaryConnection, generateAiSummariesBatch,
+} from "../../lib/tauri";
 import { setLocale as setGlobalLocale } from "../../lib/format";
 import { getUiFont, getCodeFont, getFontSize, setUiFont, setCodeFont, setFontSize } from "../../lib/fonts";
-import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig } from "../../lib/types";
+import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig, AiSummaryConfig, AiSummaryProgress } from "../../lib/types";
 
 export function SettingsPage() {
   const [config, setConfig] = useState<BackupConfig | null>(null);
@@ -20,6 +26,14 @@ export function SettingsPage() {
   const [saved, setSaved] = useState(false);
   const [migrating, setMigrating] = useState(false);
 
+  // AI summary
+  const [aiCfg, setAiCfg] = useState<AiSummaryConfig>({ baseUrl: "", apiKey: "", model: "" });
+  const [aiTesting, setAiTesting] = useState(false);
+  const [aiTestResult, setAiTestResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const [aiBatchRunning, setAiBatchRunning] = useState(false);
+  const [aiBatchProgress, setAiBatchProgress] = useState<{ current: number; total: number; ok: number; skipped: number; errors: number } | null>(null);
+  const [aiBatchForce, setAiBatchForce] = useState(false);
+
   useEffect(() => {
     getBackupConfig().then((c) => {
       setConfig(c);
@@ -28,6 +42,29 @@ export function SettingsPage() {
     getTerminalConfig().then(setTermConfig);
     getMultiplexerConfig().then(setMuxConfig);
     getAutoHideConfig().then(setAutoHideConfigState);
+    getAiSummaryConfig().then(setAiCfg);
+  }, []);
+
+  // Listen to AI batch progress events
+  useEffect(() => {
+    const unlistenProgress = listen<AiSummaryProgress>("ai-summary-progress", (e) => {
+      const p = e.payload;
+      setAiBatchProgress((prev) => ({
+        current: p.current,
+        total: p.total,
+        ok: (prev?.ok ?? 0) + (p.status === "ok" ? 1 : 0),
+        skipped: (prev?.skipped ?? 0) + (p.status === "skipped" ? 1 : 0),
+        errors: (prev?.errors ?? 0) + (p.status === "error" ? 1 : 0),
+      }));
+    });
+    const unlistenDone = listen("ai-summary-done", () => {
+      setAiBatchRunning(false);
+      toast.success("Batch generation finished. Refresh the session list to see updates.");
+    });
+    return () => {
+      unlistenProgress.then((f) => f());
+      unlistenDone.then((f) => f());
+    };
   }, []);
 
   const handleSave = async () => {
@@ -50,6 +87,7 @@ export function SettingsPage() {
     if (termConfig) await setTerminalConfig(termConfig);
     if (muxConfig) await setMultiplexerConfig(muxConfig);
     if (autoHideConfig) await setAutoHideConfig(autoHideConfig);
+    await setAiSummaryConfig(aiCfg);
 
     // Save fonts
     setUiFont(uiFont);
@@ -387,6 +425,121 @@ export function SettingsPage() {
           </div>
         </section>
       )}
+
+      {/* AI Summaries */}
+      <section className="space-y-4 max-w-lg mt-8">
+        <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">AI Summaries</h2>
+        <p className="text-xs text-zinc-500">
+          Use any OpenAI-compatible endpoint to auto-generate session titles and tags.
+          Examples:
+          {" "}
+          <code className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded">https://api.openai.com/v1</code>
+          {" / "}
+          <code className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded">https://api.deepseek.com/v1</code>
+          {" / "}
+          <code className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded">https://dashscope.aliyuncs.com/compatible-mode/v1</code>
+          {" / "}
+          <code className="bg-zinc-100 dark:bg-zinc-800 px-1 rounded">http://localhost:11434/v1</code>
+        </p>
+
+        <div>
+          <label className="text-sm font-medium">Base URL</label>
+          <input
+            type="text"
+            value={aiCfg.baseUrl}
+            onChange={(e) => { setAiCfg({ ...aiCfg, baseUrl: e.target.value }); setAiTestResult(null); }}
+            placeholder="https://api.openai.com/v1"
+            className="w-full mt-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm font-mono"
+          />
+        </div>
+        <div>
+          <label className="text-sm font-medium">API Key</label>
+          <input
+            type="password"
+            value={aiCfg.apiKey}
+            onChange={(e) => { setAiCfg({ ...aiCfg, apiKey: e.target.value }); setAiTestResult(null); }}
+            placeholder="sk-..."
+            className="w-full mt-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm font-mono"
+          />
+          <p className="text-xs text-zinc-400 mt-1">Stored locally. Only sent to the configured Base URL.</p>
+        </div>
+        <div>
+          <label className="text-sm font-medium">Model</label>
+          <input
+            type="text"
+            value={aiCfg.model}
+            onChange={(e) => { setAiCfg({ ...aiCfg, model: e.target.value }); setAiTestResult(null); }}
+            placeholder="gpt-4o-mini / deepseek-chat / qwen-flash / claude-haiku-4-5-20251001"
+            className="w-full mt-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm font-mono"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => {
+              setAiTesting(true);
+              setAiTestResult(null);
+              try {
+                const r = await testAiSummaryConnection(aiCfg);
+                setAiTestResult({ ok: true, message: `OK · ${r.slice(0, 60)}` });
+              } catch (e) {
+                setAiTestResult({ ok: false, message: String(e) });
+              } finally {
+                setAiTesting(false);
+              }
+            }}
+            disabled={aiTesting || !aiCfg.baseUrl || !aiCfg.apiKey || !aiCfg.model}
+            className="px-3 py-1 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {aiTesting ? "Testing..." : "Test connection"}
+          </button>
+          {aiTestResult && (
+            <span className={`text-xs ${aiTestResult.ok ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+              {aiTestResult.message}
+            </span>
+          )}
+        </div>
+
+        <div className="border-t border-zinc-200 dark:border-zinc-800 pt-3">
+          <div className="text-sm font-medium mb-1">Generate for all sessions</div>
+          <p className="text-xs text-zinc-500 mb-2">
+            Walks every session and calls the LLM. Sessions whose content hasn't changed since the last run are skipped via a content-hash cache (free).
+          </p>
+          <label className="flex items-center gap-2 mb-2">
+            <input type="checkbox" checked={aiBatchForce} onChange={(e) => setAiBatchForce(e.target.checked)} />
+            <span className="text-xs">Force regenerate (ignore cache)</span>
+          </label>
+          <button
+            onClick={async () => {
+              if (!confirm("This will call the LLM for every session that has changed since last run. Continue?")) return;
+              setAiBatchRunning(true);
+              setAiBatchProgress({ current: 0, total: 0, ok: 0, skipped: 0, errors: 0 });
+              try {
+                const total = await generateAiSummariesBatch(aiBatchForce);
+                if (total === 0) {
+                  setAiBatchRunning(false);
+                  toast.success("No sessions to process.");
+                }
+              } catch (e) {
+                setAiBatchRunning(false);
+                toast.error(`Batch failed to start: ${e}`);
+              }
+            }}
+            disabled={aiBatchRunning || !aiCfg.baseUrl || !aiCfg.apiKey || !aiCfg.model}
+            className="px-3 py-1 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {aiBatchRunning ? "Running..." : "Generate for all sessions"}
+          </button>
+          {aiBatchProgress && aiBatchProgress.total > 0 && (
+            <div className="mt-2 text-xs text-zinc-500">
+              {aiBatchProgress.current} / {aiBatchProgress.total}
+              {" · "}{aiBatchProgress.ok} generated
+              {" · "}{aiBatchProgress.skipped} skipped
+              {aiBatchProgress.errors > 0 && <> · <span className="text-red-500">{aiBatchProgress.errors} errors</span></>}
+            </div>
+          )}
+        </div>
+      </section>
 
       {/* Save + Import/Export */}
       <div className="mt-8 max-w-lg flex items-center gap-3">

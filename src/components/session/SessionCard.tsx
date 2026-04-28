@@ -72,10 +72,19 @@ export function SessionCard({ session, onHide }: { session: SessionSummary; show
         {" | "}{formatFileSize(session.fileSize)}
         {session.version && <>{" | "}{session.version}</>}
       </div>
-      {session.tags.length > 0 && (
+      {(session.tags.length > 0 || session.aiTags.length > 0) && (
         <div className="flex gap-1 mt-2 flex-wrap">
           {session.tags.map((tag) => (
             <TagBadge key={tag.id} tag={tag} />
+          ))}
+          {session.aiTags.map((tag) => (
+            <span
+              key={`ai-${tag}`}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400"
+              title="AI-generated tag"
+            >
+              <span className="text-[10px] opacity-70">AI</span>{tag}
+            </span>
           ))}
         </div>
       )}

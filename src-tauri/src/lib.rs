@@ -8,6 +8,7 @@ mod models;
 mod claude;
 mod codex;
 mod search;
+mod llm;
 
 use db::Database;
 use monitor::LiveMonitor;
@@ -76,6 +77,11 @@ pub fn run() {
             commands::export::export_session,
             commands::export::export_codex_session,
             commands::search::search_message_content,
+            commands::ai_summary::get_ai_summary_config,
+            commands::ai_summary::set_ai_summary_config,
+            commands::ai_summary::test_ai_summary_connection,
+            commands::ai_summary::generate_ai_summary,
+            commands::ai_summary::generate_ai_summaries_batch,
             codex::commands::codex_get_session,
             codex::commands::codex_list_projects,
             codex::commands::codex_list_sessions,

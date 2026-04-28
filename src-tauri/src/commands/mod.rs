@@ -13,3 +13,4 @@ pub mod copy_session;
 pub mod usage;
 pub mod export;
 pub mod search;
+pub mod ai_summary;

@@ -334,7 +334,7 @@ fn extract_first_user_text(content: &serde_json::Value) -> Option<String> {
 /// - strip Claude Code wrapper tags (system-reminder, local-command-stdout/stderr, command-message)
 /// - if it's a slash command, prefix with "/<name>" + args
 /// - normalize whitespace
-fn clean_summary_text(text: &str) -> String {
+pub fn clean_summary_text(text: &str) -> String {
     let mut s = text.to_string();
     for tag in &[
         "system-reminder",

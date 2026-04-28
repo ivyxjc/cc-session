@@ -5,6 +5,7 @@ import type {
   LatestMessagesResult,
   MultiplexerConfig, MultiplexerDetectionResult,
   ContentSearchResult,
+  AiSummaryConfig, AiSummaryResult,
 } from "./types";
 
 // Safe invoke wrapper — returns empty/default when not in Tauri webview (e.g. browser dev)
@@ -204,3 +205,15 @@ export const codexGetSubagentMessages = (threadId: string, offset = 0, limit = 2
 // Content search
 export const searchMessageContent = (query: string, limit = 50) =>
   invoke<ContentSearchResult[]>("search_message_content", { query, limit });
+
+// AI summary
+export const getAiSummaryConfig = () =>
+  invoke<AiSummaryConfig>("get_ai_summary_config");
+export const setAiSummaryConfig = (config: AiSummaryConfig) =>
+  invoke<void>("set_ai_summary_config", { config });
+export const testAiSummaryConnection = (config: AiSummaryConfig) =>
+  invoke<string>("test_ai_summary_connection", { config });
+export const generateAiSummary = (sessionDbId: number, force = true) =>
+  invoke<AiSummaryResult>("generate_ai_summary", { sessionDbId, force });
+export const generateAiSummariesBatch = (force = false) =>
+  invoke<number>("generate_ai_summaries_batch", { force });
