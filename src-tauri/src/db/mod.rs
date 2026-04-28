@@ -60,6 +60,7 @@ impl Database {
                 is_hidden           INTEGER DEFAULT 0,
                 copied_from_session_id TEXT,
                 copied_at           INTEGER,
+                content_indexed_at  INTEGER DEFAULT 0,
                 created_at          INTEGER
             );
 
@@ -117,7 +118,22 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_session_tags_tag      ON session_tags(tag_id);
             CREATE INDEX IF NOT EXISTS idx_backups_session       ON backups(session_id);
             CREATE INDEX IF NOT EXISTS idx_subagents_session     ON subagents(session_id);
+
+            CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
+                content,
+                session_db_id UNINDEXED,
+                message_uuid  UNINDEXED,
+                role          UNINDEXED,
+                timestamp_ms  UNINDEXED,
+                tokenize = 'trigram'
+            );
         ")?;
+
+        // Self-healing: add column if missing on existing DBs (silently ignored if exists)
+        let _ = conn.execute(
+            "ALTER TABLE sessions ADD COLUMN content_indexed_at INTEGER DEFAULT 0",
+            [],
+        );
 
         Ok(())
     }

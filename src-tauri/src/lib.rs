@@ -7,6 +7,7 @@ mod monitor;
 mod models;
 mod claude;
 mod codex;
+mod search;
 
 use db::Database;
 use monitor::LiveMonitor;
@@ -74,6 +75,7 @@ pub fn run() {
             commands::usage::get_daily_usage,
             commands::export::export_session,
             commands::export::export_codex_session,
+            commands::search::search_message_content,
             codex::commands::codex_get_session,
             codex::commands::codex_list_projects,
             codex::commands::codex_list_sessions,

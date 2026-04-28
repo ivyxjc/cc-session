@@ -148,6 +148,17 @@ export interface MultiplexerDetectionResult {
   newSessionCmd: string;
 }
 
+export interface ContentSearchResult {
+  sessionDbId: number;
+  sessionId: string;
+  projectName: string;
+  projectPath: string;
+  messageUuid: string;
+  role: string;
+  timestampMs: number;
+  snippet: string;
+}
+
 export interface ScanResult {
   projectsFound: number;
   sessionsFound: number;

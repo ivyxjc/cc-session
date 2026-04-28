@@ -4,6 +4,7 @@ import type {
   Tag, Backup, BackupConfig, TerminalConfig, ScanResult, LiveSession,
   LatestMessagesResult,
   MultiplexerConfig, MultiplexerDetectionResult,
+  ContentSearchResult,
 } from "./types";
 
 // Safe invoke wrapper — returns empty/default when not in Tauri webview (e.g. browser dev)
@@ -199,3 +200,7 @@ export const codexGetSubagents = (threadId: string) =>
 
 export const codexGetSubagentMessages = (threadId: string, offset = 0, limit = 200) =>
   invoke<ViewMessage[]>("codex_get_subagent_messages", { threadId, offset, limit });
+
+// Content search
+export const searchMessageContent = (query: string, limit = 50) =>
+  invoke<ContentSearchResult[]>("search_message_content", { query, limit });

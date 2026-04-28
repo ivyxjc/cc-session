@@ -1,6 +1,7 @@
 use crate::db::Database;
 use crate::db::models::ScanResult;
 use crate::parser;
+use crate::search;
 use rusqlite::params;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -181,15 +182,20 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                 .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64)
                 .unwrap_or(0);
 
-            // Check if we need to re-parse
-            let existing: Option<(i64, i64)> = conn.query_row(
-                "SELECT file_size, file_mtime FROM sessions WHERE jsonl_path = ?1",
+            // Check if we need to re-parse / re-index
+            let existing: Option<(i64, i64, i64)> = conn.query_row(
+                "SELECT file_size, file_mtime, COALESCE(content_indexed_at, 0)
+                 FROM sessions WHERE jsonl_path = ?1",
                 params![jsonl_path_str],
-                |row| Ok((row.get(0)?, row.get(1)?)),
+                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
             ).ok();
 
             let needs_parse = match existing {
-                Some((old_size, old_mtime)) => old_size != file_size || old_mtime != file_mtime,
+                Some((old_size, old_mtime, _)) => old_size != file_size || old_mtime != file_mtime,
+                None => true,
+            };
+            let needs_index = match existing {
+                Some((_, _, indexed_at)) => indexed_at < file_mtime,
                 None => true,
             };
 
@@ -311,6 +317,22 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                 if let Some(la) = last_active {
                     if project_last_active.map_or(true, |pla| la > pla) {
                         project_last_active = Some(la);
+                    }
+                }
+            }
+
+            // Index (or re-index) message content into FTS when stale
+            if needs_index {
+                if let Ok(session_db_id) = conn.query_row(
+                    "SELECT id FROM sessions WHERE jsonl_path = ?1",
+                    params![jsonl_path_str],
+                    |row| row.get::<_, i64>(0),
+                ) {
+                    if search::index_session_content(&conn, session_db_id, &jsonl_path).is_ok() {
+                        let _ = conn.execute(
+                            "UPDATE sessions SET content_indexed_at = ?1 WHERE id = ?2",
+                            params![file_mtime, session_db_id],
+                        );
                     }
                 }
             }
