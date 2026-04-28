@@ -151,6 +151,7 @@ export interface MultiplexerDetectionResult {
 export interface ContentSearchResult {
   sessionDbId: number;
   sessionId: string;
+  slug: string | null;
   projectName: string;
   projectPath: string;
   messageUuid: string;

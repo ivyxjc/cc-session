@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import type { ContentSearchResult } from "../lib/types";
 
 type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation" | "usage" | "codexProjects" | "codexSessions" | "codexConversation";
 type Provider = "claude" | "codex";
@@ -12,6 +13,12 @@ interface AppState {
   searchQuery: string;
   sidebarCollapsed: boolean;
   refreshCounter: number;
+  // View to return to when leaving a conversation (e.g. "search" if entered from search)
+  conversationFromView: View | null;
+  // Content search state (persisted across navigation)
+  contentSearchQuery: string;        // the query these results correspond to
+  contentSearchResults: ContentSearchResult[];
+  contentSearchError: string | null;
   // Codex
   selectedCodexCwd: string | null;
   selectedCodexThreadId: string | null;
@@ -23,6 +30,8 @@ interface AppState {
   selectCodexProject: (cwd: string) => void;
   selectCodexSession: (threadId: string | null) => void;
   setSearchQuery: (query: string) => void;
+  setContentSearch: (query: string, results: ContentSearchResult[], error: string | null) => void;
+  clearContentSearch: () => void;
   toggleSidebar: () => void;
   triggerRefresh: () => void;
 }
@@ -36,16 +45,65 @@ export const useAppStore = create<AppState>((set) => ({
   searchQuery: "",
   sidebarCollapsed: false,
   refreshCounter: 0,
+  conversationFromView: null,
+  contentSearchQuery: "",
+  contentSearchResults: [],
+  contentSearchError: null,
   selectedCodexCwd: null,
   selectedCodexThreadId: null,
   setProvider: (provider) => set({ provider, view: provider === "codex" ? "codexProjects" : "projects", searchQuery: "" }),
   setView: (view) => set({ view }),
   selectProject: (id) => set((s) => ({ selectedProjectId: id, selectedSessionId: null, ...(id !== null ? { view: "sessions" as View } : s.view === "sessions" || s.view === "conversation" ? { view: "sessions" as View } : {}) })),
-  selectSession: (id) => set({ selectedSessionId: id, view: id ? "conversation" : "sessions" }),
+  selectSession: (id) => set((s) => {
+    if (id === null) {
+      // Leaving conversation — restore source view if we recorded one
+      return {
+        selectedSessionId: null,
+        view: s.conversationFromView || "sessions",
+        conversationFromView: null,
+      };
+    }
+    // Entering conversation — remember where we came from (don't overwrite if already in conversation)
+    return {
+      selectedSessionId: id,
+      view: "conversation" as View,
+      conversationFromView: s.view === "conversation" ? s.conversationFromView : s.view,
+    };
+  }),
   selectProjectGroup: (displayName) => set({ selectedProjectGroup: displayName, selectedProjectId: null, selectedSessionId: null, view: "projectGroup" }),
   selectCodexProject: (cwd) => set({ selectedCodexCwd: cwd, selectedCodexThreadId: null, view: "codexSessions" }),
-  selectCodexSession: (threadId) => set({ selectedCodexThreadId: threadId, view: threadId ? "codexConversation" : "codexSessions" }),
-  setSearchQuery: (query) => set((s) => ({ searchQuery: query, ...(query ? { view: "search" as View } : s.view === "search" ? { view: "projects" as View } : {}) })),
+  selectCodexSession: (threadId) => set((s) => {
+    if (threadId === null) {
+      return {
+        selectedCodexThreadId: null,
+        view: s.conversationFromView || "codexSessions",
+        conversationFromView: null,
+      };
+    }
+    return {
+      selectedCodexThreadId: threadId,
+      view: "codexConversation" as View,
+      conversationFromView: s.view === "codexConversation" ? s.conversationFromView : s.view,
+    };
+  }),
+  setSearchQuery: (query) => set((s) => {
+    const trimmed = query.trim();
+    // Invalidate cached content search if the query no longer matches
+    const contentReset = trimmed === s.contentSearchQuery
+      ? {}
+      : { contentSearchQuery: "", contentSearchResults: [], contentSearchError: null };
+    return {
+      searchQuery: query,
+      ...contentReset,
+      ...(query ? { view: "search" as View } : s.view === "search" ? { view: "projects" as View } : {}),
+    };
+  }),
+  setContentSearch: (query, results, error) => set({
+    contentSearchQuery: query.trim(),
+    contentSearchResults: results,
+    contentSearchError: error,
+  }),
+  clearContentSearch: () => set({ contentSearchQuery: "", contentSearchResults: [], contentSearchError: null }),
   toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   triggerRefresh: () => set((s) => ({ refreshCounter: s.refreshCounter + 1 })),
 }));

@@ -105,6 +105,7 @@ pub fn index_session_content(
 pub struct ContentSearchResult {
     pub session_db_id: i64,
     pub session_id: String,
+    pub slug: Option<String>,
     pub project_name: String,
     pub project_path: String,
     pub message_uuid: String,
@@ -142,6 +143,7 @@ pub fn search_messages(
         SELECT
             f.session_db_id,
             s.session_id,
+            s.slug,
             p.display_name,
             p.original_path,
             f.message_uuid,
@@ -168,12 +170,13 @@ pub fn search_messages(
                 Ok(ContentSearchResult {
                     session_db_id: row.get(0)?,
                     session_id: row.get(1)?,
-                    project_name: row.get(2)?,
-                    project_path: row.get(3)?,
-                    message_uuid: row.get(4)?,
-                    role: row.get(5)?,
-                    timestamp_ms: row.get(6)?,
-                    snippet: row.get(7)?,
+                    slug: row.get(2)?,
+                    project_name: row.get(3)?,
+                    project_path: row.get(4)?,
+                    message_uuid: row.get(5)?,
+                    role: row.get(6)?,
+                    timestamp_ms: row.get(7)?,
+                    snippet: row.get(8)?,
                 })
             },
         )
@@ -200,6 +203,7 @@ fn search_messages_like(
         SELECT
             f.session_db_id,
             s.session_id,
+            s.slug,
             p.display_name,
             p.original_path,
             f.message_uuid,
@@ -221,12 +225,13 @@ fn search_messages_like(
             Ok(ContentSearchResult {
                 session_db_id: row.get(0)?,
                 session_id: row.get(1)?,
-                project_name: row.get(2)?,
-                project_path: row.get(3)?,
-                message_uuid: row.get(4)?,
-                role: row.get(5)?,
-                timestamp_ms: row.get(6)?,
-                snippet: row.get(7)?,
+                slug: row.get(2)?,
+                project_name: row.get(3)?,
+                project_path: row.get(4)?,
+                message_uuid: row.get(5)?,
+                role: row.get(6)?,
+                timestamp_ms: row.get(7)?,
+                snippet: row.get(8)?,
             })
         })
         .map_err(|e| format!("LIKE query error: {}", e))?;
