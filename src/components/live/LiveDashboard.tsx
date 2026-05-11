@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { startLiveMonitor, stopLiveMonitor, getLiveSessions } from "../../lib/tauri";
 import { useLiveStore } from "../../stores/liveStore";
 import { useAppStore } from "../../stores/appStore";
-import { LiveSessionCard } from "./LiveSessionCard";
+import { SessionCard } from "../session/SessionCard";
 import type { LiveSession } from "../../lib/types";
 
 export function LiveDashboard() {
@@ -93,10 +93,18 @@ export function LiveDashboard() {
       ) : (
         <div className="space-y-3 max-w-3xl">
           {sorted.map((session) => (
-            <LiveSessionCard
+            <SessionCard
               key={session.pid}
               session={session}
+              live={{
+                isAlive: session.isAlive,
+                startedAt: session.startedAt,
+                endedAt: session.endedAt,
+                pid: session.pid,
+                activeSubagentCount: session.activeSubagentCount,
+              }}
               onClick={() => handleSessionClick(session)}
+              hideHideButton
             />
           ))}
         </div>

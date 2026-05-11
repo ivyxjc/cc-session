@@ -78,7 +78,6 @@ export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
             <SessionCard
               key={s.id}
               session={s}
-              showHidden={showHidden}
               onHide={reload}
             />
           ))}

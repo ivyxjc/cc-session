@@ -99,7 +99,8 @@ pub async fn generate_for_session(
     let cfg = load_config(&db).map_err(GenError::Db)?.ok_or(GenError::NotConfigured)?;
 
     // Look up jsonl path + last_active + summary_at + cached hash.
-    let session_info: Option<(String, Option<i64>, Option<i64>, Option<String>)> = {
+    type SessionInfoRow = (String, Option<i64>, Option<i64>, Option<String>);
+    let session_info: Option<SessionInfoRow> = {
         let conn = db.conn();
         conn.query_row(
             "SELECT jsonl_path, last_active, summary_at, summary_input_hash
@@ -193,8 +194,7 @@ fn normalize_tags(tags: Vec<String>) -> Vec<String> {
         .map(|t| {
             t.trim()
                 .to_lowercase()
-                .replace(' ', "-")
-                .replace('_', "-")
+                .replace([' ', '_'], "-")
                 .chars()
                 .filter(|c| c.is_ascii_alphanumeric() || *c == '-')
                 .collect::<String>()

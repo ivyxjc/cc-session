@@ -190,8 +190,8 @@ pub fn migrate_backups(db: &Arc<Database>, old_dir: &str, new_dir: &str) -> Resu
         .collect();
 
     for (id, path) in &rows {
-        if path.starts_with(old_prefix) {
-            let new_bp = format!("{}{}", new_prefix, &path[old_prefix.len()..]);
+        if let Some(suffix) = path.strip_prefix(old_prefix) {
+            let new_bp = format!("{}{}", new_prefix, suffix);
             conn.execute("UPDATE backups SET backup_path = ?1 WHERE id = ?2", params![new_bp, id])
                 .map_err(|e| format!("DB error: {}", e))?;
             count += 1;

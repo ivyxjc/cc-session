@@ -8,7 +8,7 @@ use std::sync::Arc;
 use tauri::State;
 
 fn encode_path(path: &str) -> String {
-    path.replace('/', "-").replace('.', "-")
+    path.replace(['/', '.'], "-")
 }
 
 #[tauri::command]

@@ -31,6 +31,7 @@ pub struct LiveSession {
     pub db_session_id: Option<i64>,
     pub slug: Option<String>,
     pub project_name: Option<String>,
+    pub project_path: Option<String>,
     pub git_branch: Option<String>,
     pub message_count: Option<i64>,
     pub user_msg_count: Option<i64>,
@@ -42,6 +43,10 @@ pub struct LiveSession {
     pub file_size: Option<i64>,
     pub last_message_preview: Option<String>,
     pub active_subagent_count: Option<i64>,
+    pub summary: Option<String>,
+    pub summary_source: Option<String>,
+    pub ai_tags: Vec<String>,
+    pub tags: Vec<crate::db::models::Tag>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -473,30 +478,29 @@ fn scan_session_registry(db: &Database) -> Vec<LiveSession> {
     let mut results = Vec::new();
 
     for info in registry_entries {
-        let enrichment = conn
+        type EnrichmentRow = (
+            i64, Option<String>, String, String, Option<String>,
+            i64, i64, i64, i64, i64, i64,
+            Option<String>, i64,
+            Option<String>, Option<String>, Option<String>,
+        );
+        let enrichment: Option<EnrichmentRow> = conn
             .query_row(
-                "SELECT s.id, s.slug, p.display_name, s.git_branch,
+                "SELECT s.id, s.slug, p.display_name, p.original_path, s.git_branch,
                         s.message_count, s.user_msg_count, s.total_input_tokens, s.total_output_tokens,
                         s.total_cache_creation_tokens, s.total_cache_read_tokens,
-                        s.version, s.file_size
+                        s.version, s.file_size,
+                        s.summary, s.summary_source, s.ai_tags
                  FROM sessions s
                  JOIN projects p ON s.project_id = p.id
                  WHERE s.session_id = ?1",
                 params![info.session_id],
                 |row| {
                     Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, Option<String>>(1)?,
-                        row.get::<_, String>(2)?,
-                        row.get::<_, Option<String>>(3)?,
-                        row.get::<_, i64>(4)?,
-                        row.get::<_, i64>(5)?,
-                        row.get::<_, i64>(6)?,
-                        row.get::<_, i64>(7)?,
-                        row.get::<_, i64>(8)?,
-                        row.get::<_, i64>(9)?,
-                        row.get::<_, Option<String>>(10)?,
-                        row.get::<_, i64>(11)?,
+                        row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?,
+                        row.get(5)?, row.get(6)?, row.get(7)?, row.get(8)?, row.get(9)?, row.get(10)?,
+                        row.get(11)?, row.get(12)?,
+                        row.get(13)?, row.get(14)?, row.get(15)?,
                     ))
                 },
             )
@@ -511,6 +515,42 @@ fn scan_session_registry(db: &Database) -> Vec<LiveSession> {
             .ok()
         });
 
+        // Fetch user-curated tags for this session (LLM tags come from the ai_tags JSON column).
+        let tags: Vec<crate::db::models::Tag> = enrichment
+            .as_ref()
+            .map(|e| {
+                let mut stmt = conn
+                    .prepare(
+                        "SELECT t.id, t.name, t.color FROM tags t
+                         JOIN session_tags st ON st.tag_id = t.id
+                         WHERE st.session_id = ?1",
+                    )
+                    .ok();
+                let mut out = Vec::new();
+                if let Some(ref mut stmt) = stmt {
+                    let rows = stmt.query_map(params![e.0], |row| {
+                        Ok(crate::db::models::Tag {
+                            id: row.get(0)?,
+                            name: row.get(1)?,
+                            color: row.get(2)?,
+                        })
+                    });
+                    if let Ok(rows) = rows {
+                        for t in rows.flatten() {
+                            out.push(t);
+                        }
+                    }
+                }
+                out
+            })
+            .unwrap_or_default();
+
+        let ai_tags: Vec<String> = enrichment
+            .as_ref()
+            .and_then(|e| e.15.as_deref())
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+
         results.push(LiveSession {
             pid: info.pid,
             session_id: info.session_id,
@@ -523,17 +563,22 @@ fn scan_session_registry(db: &Database) -> Vec<LiveSession> {
             db_session_id: enrichment.as_ref().map(|e| e.0),
             slug: enrichment.as_ref().and_then(|e| e.1.clone()),
             project_name: enrichment.as_ref().map(|e| e.2.clone()),
-            git_branch: enrichment.as_ref().and_then(|e| e.3.clone()),
-            message_count: enrichment.as_ref().map(|e| e.4),
-            user_msg_count: enrichment.as_ref().map(|e| e.5),
-            total_input_tokens: enrichment.as_ref().map(|e| e.6),
-            total_output_tokens: enrichment.as_ref().map(|e| e.7),
-            total_cache_creation_tokens: enrichment.as_ref().map(|e| e.8),
-            total_cache_read_tokens: enrichment.as_ref().map(|e| e.9),
-            version: enrichment.as_ref().and_then(|e| e.10.clone()),
-            file_size: enrichment.as_ref().map(|e| e.11),
+            project_path: enrichment.as_ref().map(|e| e.3.clone()),
+            git_branch: enrichment.as_ref().and_then(|e| e.4.clone()),
+            message_count: enrichment.as_ref().map(|e| e.5),
+            user_msg_count: enrichment.as_ref().map(|e| e.6),
+            total_input_tokens: enrichment.as_ref().map(|e| e.7),
+            total_output_tokens: enrichment.as_ref().map(|e| e.8),
+            total_cache_creation_tokens: enrichment.as_ref().map(|e| e.9),
+            total_cache_read_tokens: enrichment.as_ref().map(|e| e.10),
+            version: enrichment.as_ref().and_then(|e| e.11.clone()),
+            file_size: enrichment.as_ref().map(|e| e.12),
             last_message_preview: None,
             active_subagent_count: subagent_count,
+            summary: enrichment.as_ref().and_then(|e| e.13.clone()),
+            summary_source: enrichment.as_ref().and_then(|e| e.14.clone()),
+            ai_tags,
+            tags,
         });
     }
 

@@ -4,38 +4,11 @@ import { codexGetSession, codexGetLatestMessages, codexGetMessages, codexGetSuba
 import { save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { toast } from "../../stores/toastStore";
 import type { ViewMessage, CodexSession, CodexSubagent } from "../../lib/types";
-import type { ToolResult } from "../../lib/toolResults";
 import { formatTokens, formatRelativeTime } from "../../lib/format";
 import { useAppStore } from "../../stores/appStore";
 import { CopyText } from "../common/CopyText";
 import { MessageBubble } from "../message/MessageBubble";
-
-function useIncrementalToolResults(messages: ViewMessage[]) {
-  const mapRef = useRef(new Map<string, ToolResult>());
-  const processedRef = useRef(0);
-
-  if (messages.length > processedRef.current) {
-    for (let i = processedRef.current; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.type !== "user") continue;
-      for (const block of msg.content) {
-        if (block.type === "toolResult" && block.toolCallId) {
-          const content = typeof block.content === "string" ? block.content : String(block.content ?? "");
-          mapRef.current.set(block.toolCallId, { content, isError: block.isError ?? false });
-        }
-      }
-    }
-    processedRef.current = messages.length;
-  }
-
-  return mapRef.current;
-}
-
-function getMessageKey(msg: ViewMessage, index: number): string {
-  if (msg.type === "user" || msg.type === "assistant") return msg.id || `msg-${index}`;
-  if (msg.type === "system") return msg.id || `sys-${index}`;
-  return `msg-${index}`;
-}
+import { useIncrementalToolResults, getMessageKey } from "../../lib/conversation";
 
 const INITIAL_LOAD = 100;
 const OLDER_BATCH = 50;

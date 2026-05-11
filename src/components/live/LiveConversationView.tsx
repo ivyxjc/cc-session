@@ -19,73 +19,11 @@ import { TagBadge } from "../common/TagBadge";
 import { LiveStatusBadge } from "./LiveStatusBadge";
 import { RunningTimer } from "./RunningTimer";
 import { TerminalPane } from "../terminal/TerminalPane";
-import type { ToolResult } from "../../lib/toolResults";
-
-// --- Incremental tool results (task #10 inlined) ---
-
-function useIncrementalToolResults(messages: ViewMessage[]) {
-  const mapRef = useRef(new Map<string, ToolResult>());
-  const processedRef = useRef(0);
-
-  // Process only newly added messages
-  if (messages.length > processedRef.current) {
-    for (let i = processedRef.current; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.type !== "user") continue;
-      for (const block of msg.content) {
-        if (block.type === "toolResult" && block.toolCallId) {
-          const content = extractToolResultContent(block);
-          mapRef.current.set(block.toolCallId, { content, isError: block.isError ?? false });
-        }
-      }
-    }
-    processedRef.current = messages.length;
-  }
-
-  // When messages are prepended (older messages loaded), reprocess from scratch
-  // Detect prepend: processedRef > messages.length shouldn't happen, but
-  // a full reset when the array identity changes is handled by the caller
-  return mapRef.current;
-}
-
-function extractToolResultContent(block: { content?: unknown }): string {
-  const raw = block.content;
-  if (typeof raw === "string") return raw;
-  if (Array.isArray(raw)) {
-    return raw
-      .filter((b: Record<string, unknown>) => b.type === "text")
-      .map((b: Record<string, unknown>) => b.text || "")
-      .join("\n");
-  }
-  return String(raw ?? "");
-}
-
-// --- Message key ---
-
-function getMessageKey(msg: ViewMessage, index: number): string {
-  if (msg.type === "user" || msg.type === "assistant") return msg.id || `msg-${index}`;
-  if (msg.type === "system") return msg.id || `sys-${index}`;
-  return `msg-${index}`;
-}
-
-function findSubagentMessageIndex(messages: ViewMessage[], description: string): number {
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.type !== "assistant") continue;
-    for (const block of msg.content) {
-      if (
-        block.type === "toolCall" &&
-        block.name === "Agent" &&
-        (block.input as { description?: string })?.description === description
-      ) {
-        return i;
-      }
-    }
-  }
-  return -1;
-}
-
-// --- Component ---
+import {
+  useIncrementalToolResults,
+  getMessageKey,
+  findSubagentMessageIndex,
+} from "../../lib/conversation";
 
 const INITIAL_LOAD = 100;
 const OLDER_BATCH = 50;

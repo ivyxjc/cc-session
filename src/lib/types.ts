@@ -95,6 +95,7 @@ export interface LiveSession {
   dbSessionId: number | null;
   slug: string | null;
   projectName: string | null;
+  projectPath: string | null;
   gitBranch: string | null;
   messageCount: number | null;
   userMsgCount: number | null;
@@ -106,6 +107,10 @@ export interface LiveSession {
   fileSize: number | null;
   lastMessagePreview: string | null;
   activeSubagentCount: number | null;
+  summary: string | null;
+  summarySource: string | null;
+  aiTags: string[];
+  tags: Tag[];
 }
 
 export interface SessionMessagesUpdate {

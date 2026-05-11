@@ -128,13 +128,7 @@ export const detectMultiplexerSessions = (path: string, multiplexer: string) =>
 export const findSessionForPid = (pid: number, multiplexer: string) =>
   invoke<string | null>("find_session_for_pid", { pid, multiplexer });
 
-// Settings import/export
-export const exportSettings = () =>
-  invoke<string>("export_settings");
-
-export const importSettings = (json: string) =>
-  invoke<void>("import_settings", { json });
-
+// Settings import/export (file-based — the string-based variants were unused and removed)
 export const exportSettingsToFile = (path: string) =>
   invoke<void>("export_settings_to_file", { path });
 

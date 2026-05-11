@@ -11,7 +11,6 @@ interface AppState {
   selectedSessionId: number | null;
   selectedProjectGroup: string | null; // displayName for grouped projects
   searchQuery: string;
-  sidebarCollapsed: boolean;
   refreshCounter: number;
   // View to return to when leaving a conversation (e.g. "search" if entered from search)
   conversationFromView: View | null;
@@ -31,8 +30,6 @@ interface AppState {
   selectCodexSession: (threadId: string | null) => void;
   setSearchQuery: (query: string) => void;
   setContentSearch: (query: string, results: ContentSearchResult[], error: string | null) => void;
-  clearContentSearch: () => void;
-  toggleSidebar: () => void;
   triggerRefresh: () => void;
 }
 
@@ -43,7 +40,6 @@ export const useAppStore = create<AppState>((set) => ({
   selectedSessionId: null,
   selectedProjectGroup: null,
   searchQuery: "",
-  sidebarCollapsed: false,
   refreshCounter: 0,
   conversationFromView: null,
   contentSearchQuery: "",
@@ -103,7 +99,5 @@ export const useAppStore = create<AppState>((set) => ({
     contentSearchResults: results,
     contentSearchError: error,
   }),
-  clearContentSearch: () => set({ contentSearchQuery: "", contentSearchResults: [], contentSearchError: null }),
-  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   triggerRefresh: () => set((s) => ({ refreshCounter: s.refreshCounter + 1 })),
 }));

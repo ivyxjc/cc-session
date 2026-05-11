@@ -182,13 +182,7 @@ pub fn search_messages(
         )
         .map_err(|e| format!("FTS query error: {}", e))?;
 
-    let mut results = Vec::new();
-    for r in rows {
-        if let Ok(r) = r {
-            results.push(r);
-        }
-    }
-    Ok(results)
+    Ok(rows.flatten().collect())
 }
 
 /// Fallback for short queries (<3 chars) where trigram tokenizer can't index.
@@ -236,11 +230,5 @@ fn search_messages_like(
         })
         .map_err(|e| format!("LIKE query error: {}", e))?;
 
-    let mut results = Vec::new();
-    for r in rows {
-        if let Ok(r) = r {
-            results.push(r);
-        }
-    }
-    Ok(results)
+    Ok(rows.flatten().collect())
 }

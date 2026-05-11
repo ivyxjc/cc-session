@@ -2,69 +2,15 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { getLatestMessages, getMessages, getSubagents, listSessions } from "../../lib/tauri";
 import type { ViewMessage, SessionSummary, SubagentSummary } from "../../lib/types";
-import type { ToolResult } from "../../lib/toolResults";
 import { useAppStore } from "../../stores/appStore";
 import { SessionHeader } from "./SessionHeader";
 import { MessageBubble } from "../message/MessageBubble";
 import { SubagentView } from "../message/SubagentView";
-
-// Reuse the same incremental tool results approach as LiveConversationView
-function useIncrementalToolResults(messages: ViewMessage[]) {
-  const mapRef = useRef(new Map<string, ToolResult>());
-  const processedRef = useRef(0);
-
-  if (messages.length > processedRef.current) {
-    for (let i = processedRef.current; i < messages.length; i++) {
-      const msg = messages[i];
-      if (msg.type !== "user") continue;
-      for (const block of msg.content) {
-        if (block.type === "toolResult" && block.toolCallId) {
-          const content = extractToolResultContent(block);
-          mapRef.current.set(block.toolCallId, { content, isError: block.isError ?? false });
-        }
-      }
-    }
-    processedRef.current = messages.length;
-  }
-
-  return mapRef.current;
-}
-
-function extractToolResultContent(block: { content?: unknown }): string {
-  const raw = block.content;
-  if (typeof raw === "string") return raw;
-  if (Array.isArray(raw)) {
-    return raw
-      .filter((b: Record<string, unknown>) => b.type === "text")
-      .map((b: Record<string, unknown>) => b.text || "")
-      .join("\n");
-  }
-  return String(raw ?? "");
-}
-
-function getMessageKey(msg: ViewMessage, index: number): string {
-  if (msg.type === "user" || msg.type === "assistant") return msg.id || `msg-${index}`;
-  if (msg.type === "system") return msg.id || `sys-${index}`;
-  return `msg-${index}`;
-}
-
-/** Find the message index that contains an Agent tool_use matching this subagent */
-function findSubagentMessageIndex(messages: ViewMessage[], description: string): number {
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.type !== "assistant") continue;
-    for (const block of msg.content) {
-      if (
-        block.type === "toolCall" &&
-        block.name === "Agent" &&
-        (block.input as { description?: string })?.description === description
-      ) {
-        return i;
-      }
-    }
-  }
-  return -1;
-}
+import {
+  useIncrementalToolResults,
+  getMessageKey,
+  findSubagentMessageIndex,
+} from "../../lib/conversation";
 
 const INITIAL_LOAD = 100;
 const OLDER_BATCH = 50;

@@ -17,7 +17,7 @@ fn get_claude_dir() -> PathBuf {
 pub fn encode_path(path: &str) -> String {
     // Claude Code encodes paths by replacing '/' and '.' with '-'
     // "/Users/ivyxjc/simora.main" -> "-Users-ivyxjc-simora-main"
-    path.replace('/', "-").replace('.', "-")
+    path.replace(['/', '.'], "-")
 }
 
 /// Extract cwd from the first user message in a JSONL file
@@ -328,7 +328,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                 }
 
                 if let Some(la) = last_active {
-                    if project_last_active.map_or(true, |pla| la > pla) {
+                    if project_last_active.is_none_or(|pla| la > pla) {
                         project_last_active = Some(la);
                     }
                 }
