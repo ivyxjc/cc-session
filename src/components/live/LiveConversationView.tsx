@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 import { listen } from "@tauri-apps/api/event";
 import { getLatestMessages, getMessages, getSubagents, watchSession, unwatchSession, listSessions } from "../../lib/tauri";
-import type { ViewMessage, SubagentSummary, SessionMessagesUpdate } from "../../lib/types";
+import type { ViewMessage, SubagentSummary, SessionMessagesUpdate, SessionSummary, AiSummaryProgress } from "../../lib/types";
 import { useLiveStore } from "../../stores/liveStore";
 import { useAppStore } from "../../stores/appStore";
 import { formatTokens, formatFileSize } from "../../lib/format";
@@ -102,6 +102,7 @@ export function LiveConversationView() {
   const [showTagManager, setShowTagManager] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [tags, setTags] = useState<{ id: number; name: string; color: string }[]>([]);
+  const [dbSession, setDbSession] = useState<SessionSummary | null>(null);
   const [showTerminal, setShowTerminal] = useState(false);
 
   const [subagentsExpanded, setSubagentsExpanded] = useState(false);
@@ -136,15 +137,15 @@ export function LiveConversationView() {
     Promise.all([
       getLatestMessages(dbSessionId, INITIAL_LOAD),
       getSubagents(dbSessionId),
-      listSessions({ projectId: undefined }).then((sessions) => {
-        const s = sessions.find((s) => s.id === dbSessionId);
-        return s?.tags || [];
-      }),
-    ]).then(([result, subs, sessionTags]) => {
+      listSessions({ projectId: undefined, showHidden: true }).then((sessions) =>
+        sessions.find((s) => s.id === dbSessionId) || null,
+      ),
+    ]).then(([result, subs, session]) => {
       const startOffset = result.totalCount - result.messages.length;
       setMessages(result.messages);
       setSubagents(subs);
-      setTags(sessionTags);
+      setTags(session?.tags || []);
+      setDbSession(session);
       setFirstItemIndex(startOffset);
       earliestOffsetRef.current = startOffset;
       hasOlderRef.current = startOffset > 0;
@@ -157,6 +158,20 @@ export function LiveConversationView() {
       unwatchSession(watchedSessionId).catch(console.error);
     };
   }, [watchedSessionId, dbSessionId]);
+
+  // Refresh dbSession when AI summary batch (or per-session generation) completes
+  // for this session — keeps the title / aiTags up to date without reload.
+  useEffect(() => {
+    if (!dbSessionId) return;
+    const unlisten = listen<AiSummaryProgress>("ai-summary-progress", (event) => {
+      if (event.payload.sessionDbId !== dbSessionId || event.payload.status !== "ok") return;
+      listSessions({ projectId: undefined, showHidden: true }).then((sessions) => {
+        const s = sessions.find((x) => x.id === dbSessionId) || null;
+        if (s) setDbSession(s);
+      });
+    });
+    return () => { unlisten.then((fn) => fn()); };
+  }, [dbSessionId]);
 
   // --- Live message events with batching ---
   useEffect(() => {
@@ -310,8 +325,14 @@ export function LiveConversationView() {
             <FavoriteButton sessionId={liveSession.dbSessionId} initialFavorited={false} />
           )}
         </div>
-        <h1 className="text-lg font-semibold mt-2">
-          {liveSession?.projectName || liveSession?.cwd.split("/").pop() || "\u2014"}
+        <h1
+          className={`text-lg font-semibold mt-2 break-words ${
+            dbSession?.summary && dbSession.summarySource === "heuristic"
+              ? "italic text-zinc-600 dark:text-zinc-400"
+              : ""
+          }`}
+        >
+          {dbSession?.summary || liveSession?.projectName || liveSession?.cwd.split("/").pop() || "\u2014"}
         </h1>
         <CopyText text={watchedSessionId} className="text-sm text-zinc-400 font-mono" />
         <div className="text-sm text-zinc-500 mt-0.5">
@@ -325,9 +346,18 @@ export function LiveConversationView() {
           {" "}&middot; cache W {formatTokens(liveSession?.totalCacheCreationTokens || 0)}
           {liveSession?.fileSize != null && <> &middot; {formatFileSize(liveSession.fileSize)}</>}
         </div>
-        {tags.length > 0 && (
-          <div className="flex gap-1 mt-2">
+        {(tags.length > 0 || (dbSession?.aiTags && dbSession.aiTags.length > 0)) && (
+          <div className="flex gap-1 mt-2 flex-wrap">
             {tags.map((tag) => <TagBadge key={tag.id} tag={tag} />)}
+            {dbSession?.aiTags?.map((tag) => (
+              <span
+                key={`ai-${tag}`}
+                className="inline-flex items-center gap-1 px-1.5 py-0.5 text-xs rounded border border-emerald-300 dark:border-emerald-800 text-emerald-700 dark:text-emerald-400"
+                title="AI-generated tag"
+              >
+                <span className="text-[10px] opacity-70">AI</span>{tag}
+              </span>
+            ))}
           </div>
         )}
       </div>

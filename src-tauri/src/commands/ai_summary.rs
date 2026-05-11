@@ -107,17 +107,22 @@ pub struct BatchProgressEvent {
 /// Kick off batch generation across (optionally filtered) sessions.
 /// Returns immediately; progress is emitted via the `ai-summary-progress` event.
 /// `force=false` lets the hash-based cache skip unchanged sessions.
+/// If `session_ids` is provided, only those sessions are processed (used by the
+/// "Generate for all live sessions" path). Otherwise all non-hidden sessions
+/// are walked, ordered by last_active.
 #[tauri::command]
 pub async fn generate_ai_summaries_batch(
     app: AppHandle,
     db: State<'_, Arc<Database>>,
     force: Option<bool>,
+    session_ids: Option<Vec<i64>>,
 ) -> Result<usize, String> {
     let db = (*db).clone();
     let force = force.unwrap_or(false);
 
-    // Collect target session ids (only non-hidden ones).
-    let ids: Vec<i64> = {
+    let ids: Vec<i64> = if let Some(explicit) = session_ids.filter(|v| !v.is_empty()) {
+        explicit
+    } else {
         let conn = db.conn();
         let mut stmt = conn
             .prepare("SELECT id FROM sessions WHERE is_hidden = 0 ORDER BY last_active DESC NULLS LAST")

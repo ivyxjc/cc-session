@@ -5,10 +5,41 @@
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use parking_lot::Mutex;
 use portable_pty::{native_pty_system, CommandBuilder, MasterPty, PtySize};
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use std::io::{Read, Write};
 use std::sync::Arc;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Runtime};
+
+pub type PtyResult<T> = Result<T, PtyError>;
+
+/// Typed errors for PTY operations. Serialized to a string when crossing the
+/// Tauri IPC boundary so the frontend just sees a readable message.
+#[derive(Debug, thiserror::Error)]
+pub enum PtyError {
+    #[error("empty argv")]
+    EmptyArgv,
+
+    #[error("no active pty session")]
+    NoActiveSession,
+
+    #[error("openpty failed: {0}")]
+    OpenPty(String),
+
+    #[error("spawn failed: {0}")]
+    Spawn(String),
+
+    #[error("io: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("pty: {0}")]
+    Generic(String),
+}
+
+impl Serialize for PtyError {
+    fn serialize<S: Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(&self.to_string())
+    }
+}
 
 pub struct PtySession {
     master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
@@ -22,15 +53,15 @@ struct OutputPayload {
 }
 
 impl PtySession {
-    pub fn spawn(
-        app: AppHandle,
+    pub fn spawn<R: Runtime>(
+        app: AppHandle<R>,
         argv: Vec<String>,
         cwd: Option<String>,
         cols: u16,
         rows: u16,
-    ) -> Result<Self, String> {
+    ) -> PtyResult<Self> {
         if argv.is_empty() {
-            return Err("empty argv".into());
+            return Err(PtyError::EmptyArgv);
         }
 
         let pty_system = native_pty_system();
@@ -41,7 +72,7 @@ impl PtySession {
                 pixel_width: 0,
                 pixel_height: 0,
             })
-            .map_err(|e| format!("openpty: {}", e))?;
+            .map_err(|e| PtyError::OpenPty(e.to_string()))?;
 
         let mut builder = CommandBuilder::new(&argv[0]);
         for a in argv.iter().skip(1) {
@@ -89,12 +120,12 @@ impl PtySession {
         let child = pair
             .slave
             .spawn_command(builder)
-            .map_err(|e| format!("spawn: {}", e))?;
-        let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
+            .map_err(|e| PtyError::Spawn(e.to_string()))?;
+        let writer = pair.master.take_writer().map_err(|e| PtyError::Generic(e.to_string()))?;
         let mut reader = pair
             .master
             .try_clone_reader()
-            .map_err(|e| e.to_string())?;
+            .map_err(|e| PtyError::Generic(e.to_string()))?;
 
         let app_for_thread = app.clone();
         std::thread::spawn(move || {
@@ -123,14 +154,14 @@ impl PtySession {
         })
     }
 
-    pub fn write(&self, data: &[u8]) -> Result<(), String> {
+    pub fn write(&self, data: &[u8]) -> PtyResult<()> {
         let mut w = self.writer.lock();
-        w.write_all(data).map_err(|e| e.to_string())?;
-        w.flush().map_err(|e| e.to_string())?;
+        w.write_all(data)?;
+        w.flush()?;
         Ok(())
     }
 
-    pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
+    pub fn resize(&self, cols: u16, rows: u16) -> PtyResult<()> {
         let m = self.master.lock();
         m.resize(PtySize {
             cols,
@@ -138,7 +169,7 @@ impl PtySession {
             pixel_width: 0,
             pixel_height: 0,
         })
-        .map_err(|e| format!("resize: {}", e))
+        .map_err(|e| PtyError::Generic(format!("resize: {}", e)))
     }
 
     pub fn kill(&self) {
@@ -166,19 +197,19 @@ impl PtyState {
         *g = Some(session);
     }
 
-    pub fn write(&self, data: &[u8]) -> Result<(), String> {
+    pub fn write(&self, data: &[u8]) -> PtyResult<()> {
         let g = self.inner.lock();
         match g.as_ref() {
             Some(s) => s.write(data),
-            None => Err("no active pty session".into()),
+            None => Err(PtyError::NoActiveSession),
         }
     }
 
-    pub fn resize(&self, cols: u16, rows: u16) -> Result<(), String> {
+    pub fn resize(&self, cols: u16, rows: u16) -> PtyResult<()> {
         let g = self.inner.lock();
         match g.as_ref() {
             Some(s) => s.resize(cols, rows),
-            None => Err("no active pty session".into()),
+            None => Err(PtyError::NoActiveSession),
         }
     }
 

@@ -13,6 +13,12 @@ import {
   ptyCreateMultiplexer,
   ptyDetach,
 } from "../../lib/tauri";
+import {
+  getTerminalFontFamily,
+  getTerminalFontSize,
+  getTerminalLineHeight,
+  onTerminalSettingsChange,
+} from "../../lib/fonts";
 import type { MultiplexerSession } from "../../lib/types";
 
 interface OutputPayload {
@@ -72,8 +78,9 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     let unlistenExit: UnlistenFn | null = null;
 
     const term = new Terminal({
-      fontSize: 13,
-      fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      fontSize: getTerminalFontSize(),
+      fontFamily: getTerminalFontFamily(),
+      lineHeight: getTerminalLineHeight(),
       cursorBlink: true,
       allowProposedApi: true,
       theme: {
@@ -170,13 +177,16 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
       }
     });
 
-    term.onData((data) => {
+    // Keep IDisposables so we can release them explicitly on cleanup. term.dispose()
+    // does dispose registered listeners transitively, but being explicit makes the
+    // lifecycle obvious and prevents leaks if a future change disposes earlier.
+    const onDataDisposable = term.onData((data) => {
       if (!attachedRef.current) return;
       const b64 = utf8ToBase64(data);
       invoke("pty_write", { data: b64 }).catch(() => {});
     });
 
-    term.onResize(({ cols, rows }) => {
+    const onResizeDisposable = term.onResize(({ cols, rows }) => {
       if (!attachedRef.current) return;
       invoke("pty_resize", { cols, rows }).catch(() => {});
     });
@@ -186,9 +196,27 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     });
     ro.observe(host);
 
+    // Live-update terminal font / size / line-height when user saves settings.
+    // Mutating term.options triggers an internal re-render; we then refit so the
+    // PTY size matches the new cell grid.
+    const unlistenSettings = onTerminalSettingsChange(() => {
+      if (cancelled) return;
+      try {
+        term.options.fontFamily = getTerminalFontFamily();
+        term.options.fontSize = getTerminalFontSize();
+        term.options.lineHeight = getTerminalLineHeight();
+        fit.fit();
+      } catch {
+        // term disposed or host not sized — ignore
+      }
+    });
+
     return () => {
       cancelled = true;
       ro.disconnect();
+      unlistenSettings();
+      onDataDisposable.dispose();
+      onResizeDisposable.dispose();
       if (unlistenOutput) unlistenOutput();
       if (unlistenExit) unlistenExit();
       try { term.dispose(); } catch {}

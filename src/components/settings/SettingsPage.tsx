@@ -7,12 +7,31 @@ import {
   getMultiplexerConfig, setMultiplexerConfig, getAutoHideConfig, setAutoHideConfig,
   exportSettingsToFile, importSettingsFromFile,
   getAiSummaryConfig, setAiSummaryConfig, testAiSummaryConnection, generateAiSummariesBatch,
+  getLiveSessions,
 } from "../../lib/tauri";
 import { setLocale as setGlobalLocale } from "../../lib/format";
-import { getUiFont, getCodeFont, getFontSize, setUiFont, setCodeFont, setFontSize } from "../../lib/fonts";
+import {
+  getUiFont, getCodeFont, getFontSize, setUiFont, setCodeFont, setFontSize,
+  getTerminalFont, getTerminalFontSize, getTerminalLineHeight,
+  setTerminalFont, setTerminalFontSize, setTerminalLineHeight,
+  TERMINAL_FONT_SIZE_DEFAULT, TERMINAL_LINE_HEIGHT_DEFAULT,
+  TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_LINE_HEIGHT_MIN, TERMINAL_LINE_HEIGHT_MAX,
+} from "../../lib/fonts";
 import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig, AiSummaryConfig, AiSummaryProgress } from "../../lib/types";
 
+type SettingsCategory = "appearance" | "sessions" | "backup" | "integrations" | "ai";
+
+const CATEGORIES: { id: SettingsCategory; label: string; sub: string }[] = [
+  { id: "appearance", label: "Appearance", sub: "Fonts, locale, terminal" },
+  { id: "sessions", label: "Sessions", sub: "Visibility & filters" },
+  { id: "backup", label: "Backup", sub: "Where & how often" },
+  { id: "integrations", label: "Integrations", sub: "Terminal & multiplexer" },
+  { id: "ai", label: "AI Summaries", sub: "LLM provider" },
+];
+
 export function SettingsPage() {
+  const [activeCategory, setActiveCategory] = useState<SettingsCategory>("appearance");
   const [config, setConfig] = useState<BackupConfig | null>(null);
   const [originalDir, setOriginalDir] = useState<string>("");
   const [termConfig, setTermConfig] = useState<TerminalConfig | null>(null);
@@ -22,6 +41,9 @@ export function SettingsPage() {
   const [uiFont, setUiFontState] = useState(getUiFont());
   const [codeFont, setCodeFontState] = useState(getCodeFont());
   const [fontSize, setFontSizeState] = useState(getFontSize());
+  const [terminalFont, setTerminalFontState] = useState(getTerminalFont());
+  const [terminalFontSize, setTerminalFontSizeState] = useState<number>(getTerminalFontSize());
+  const [terminalLineHeight, setTerminalLineHeightState] = useState<number>(getTerminalLineHeight());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [migrating, setMigrating] = useState(false);
@@ -93,6 +115,9 @@ export function SettingsPage() {
     setUiFont(uiFont);
     setCodeFont(codeFont);
     setFontSize(fontSize);
+    setTerminalFont(terminalFont);
+    setTerminalFontSize(terminalFontSize === TERMINAL_FONT_SIZE_DEFAULT ? null : terminalFontSize);
+    setTerminalLineHeight(terminalLineHeight === TERMINAL_LINE_HEIGHT_DEFAULT ? null : terminalLineHeight);
 
     // Save locale
     if (locale) {
@@ -110,13 +135,39 @@ export function SettingsPage() {
 
   if (!config) return <div className="p-6 text-zinc-500">Loading...</div>;
 
+  const activeMeta = CATEGORIES.find((c) => c.id === activeCategory)!;
+
   return (
-    <div className="p-6 h-full overflow-y-auto">
-      <h1 className="text-xl font-semibold mb-6">Settings</h1>
+    <div className="h-full flex bg-zinc-50 dark:bg-zinc-950">
+      {/* Sidebar nav */}
+      <nav className="w-56 shrink-0 border-r border-zinc-200 dark:border-zinc-800 p-3 flex flex-col gap-0.5 overflow-y-auto">
+        <h1 className="text-base font-semibold px-2 pt-1 pb-3">Settings</h1>
+        {CATEGORIES.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => setActiveCategory(c.id)}
+            className={`text-left px-2.5 py-1.5 rounded text-sm transition-colors ${
+              activeCategory === c.id
+                ? "bg-zinc-200 dark:bg-zinc-800 font-medium text-zinc-900 dark:text-zinc-100"
+                : "hover:bg-zinc-100 dark:hover:bg-zinc-900 text-zinc-600 dark:text-zinc-400"
+            }`}
+          >
+            <div>{c.label}</div>
+            <div className={`text-[11px] mt-0.5 ${activeCategory === c.id ? "text-zinc-500 dark:text-zinc-500" : "text-zinc-400 dark:text-zinc-600"}`}>{c.sub}</div>
+          </button>
+        ))}
+      </nav>
+
+      {/* Content panel */}
+      <div className="flex-1 min-w-0 flex flex-col bg-white dark:bg-zinc-900">
+        <div className="flex-1 overflow-y-auto">
+          <div className="px-8 py-6 max-w-2xl">
+            <h2 className="text-2xl font-semibold mb-1">{activeMeta.label}</h2>
+            <p className="text-sm text-zinc-500 mb-6">{activeMeta.sub}</p>
 
       {/* Backup Settings */}
-      <section className="space-y-4 max-w-lg">
-        <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Backup</h2>
+      {activeCategory === "backup" && (
+      <section className="space-y-4">
 
         <div>
           <label className="text-sm font-medium">Backup directory</label>
@@ -189,11 +240,11 @@ export function SettingsPage() {
         </div>
 
       </section>
+      )}
 
       {/* Session Visibility */}
-      {autoHideConfig && (
-        <section className="space-y-4 max-w-lg mt-8">
-          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Session Visibility</h2>
+      {activeCategory === "sessions" && autoHideConfig && (
+        <section className="space-y-4">
           <label className="flex items-center gap-2">
             <input
               type="checkbox"
@@ -219,8 +270,9 @@ export function SettingsPage() {
       )}
 
       {/* Display Settings */}
-      <section className="space-y-4 max-w-lg mt-8">
-        <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Display</h2>
+      {activeCategory === "appearance" && (
+      <section className="space-y-5">
+        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 border-b border-zinc-200 dark:border-zinc-800 pb-1">Display</h3>
         <div>
           <label className="text-sm font-medium">Date/time locale</label>
           <div className="flex gap-2 mt-1 items-center">
@@ -322,11 +374,98 @@ export function SettingsPage() {
           <p className="text-xs text-zinc-400 mt-1">Base font size for the entire app.</p>
         </div>
       </section>
+      )}
 
-      {/* Terminal Settings */}
-      {termConfig && (
-        <section className="space-y-4 max-w-lg mt-8">
-          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Terminal</h2>
+      {/* Embedded Terminal Font */}
+      {activeCategory === "appearance" && (
+      <section className="space-y-5 mt-8">
+        <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 border-b border-zinc-200 dark:border-zinc-800 pb-1">Embedded Terminal</h3>
+        <p className="text-xs text-zinc-500">
+          Font settings for the embedded zellij / tmux terminal pane (the one in live session view).
+          Independent from the app-wide Code Font; falls back to Code Font when left empty.
+        </p>
+
+        <div>
+          <label className="text-sm font-medium">Terminal Font</label>
+          <div className="flex gap-2 mt-1 items-center">
+            <select
+              value={terminalFont}
+              onChange={(e) => setTerminalFontState(e.target.value)}
+              className="flex-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            >
+              <option value="">Fall back to Code Font / system mono</option>
+              <option value="JetBrains Mono">JetBrains Mono</option>
+              <option value="JetBrainsMono Nerd Font Mono">JetBrainsMono Nerd Font Mono</option>
+              <option value="Maple Mono NF CN">Maple Mono NF CN</option>
+              <option value="Fira Code">Fira Code</option>
+              <option value="SF Mono">SF Mono</option>
+              <option value="Menlo">Menlo</option>
+              <option value="Monaco">Monaco</option>
+              <option value="Cascadia Code">Cascadia Code</option>
+            </select>
+            <input
+              type="text"
+              value={terminalFont}
+              onChange={(e) => setTerminalFontState(e.target.value)}
+              placeholder="or custom font name"
+              className="w-40 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            />
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">
+            Monospace font for the terminal grid. Tip: a Nerd Font lets zellij status icons render correctly.
+          </p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Terminal Font Size (px)</label>
+          <input
+            type="number"
+            min={TERMINAL_FONT_SIZE_MIN}
+            max={TERMINAL_FONT_SIZE_MAX}
+            value={terminalFontSize}
+            onChange={(e) => {
+              const v = parseInt(e.target.value, 10);
+              if (Number.isFinite(v)) {
+                setTerminalFontSizeState(Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, v)));
+              }
+            }}
+            className="w-24 mt-1 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+          />
+          <span className="ml-2 text-xs text-zinc-400">Default {TERMINAL_FONT_SIZE_DEFAULT}px</span>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Terminal Line Height</label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="number"
+              min={TERMINAL_LINE_HEIGHT_MIN}
+              max={TERMINAL_LINE_HEIGHT_MAX}
+              step={0.05}
+              value={terminalLineHeight.toFixed(2)}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v)) {
+                  setTerminalLineHeightState(Math.max(TERMINAL_LINE_HEIGHT_MIN, Math.min(TERMINAL_LINE_HEIGHT_MAX, v)));
+                }
+              }}
+              className="w-24 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            />
+            <span className="text-xs text-zinc-400">
+              Default {TERMINAL_LINE_HEIGHT_DEFAULT.toFixed(2)} · range {TERMINAL_LINE_HEIGHT_MIN}–{TERMINAL_LINE_HEIGHT_MAX}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">
+            xterm cell-height multiplier. Bump up if cells feel cramped, down to match another terminal's grid (zellij broadcasts the smallest client size to all).
+          </p>
+        </div>
+      </section>
+      )}
+
+      {/* Terminal launcher */}
+      {activeCategory === "integrations" && termConfig && (
+        <section className="space-y-5">
+          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 border-b border-zinc-200 dark:border-zinc-800 pb-1">Terminal Launcher</h3>
 
           <div>
             <label className="text-sm font-medium">Default terminal</label>
@@ -405,9 +544,9 @@ export function SettingsPage() {
       )}
 
       {/* Multiplexer Integration */}
-      {muxConfig && (
-        <section className="space-y-4 max-w-lg mt-8">
-          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">Multiplexer</h2>
+      {activeCategory === "integrations" && muxConfig && (
+        <section className="space-y-5 mt-8">
+          <h3 className="text-sm font-medium text-zinc-700 dark:text-zinc-300 border-b border-zinc-200 dark:border-zinc-800 pb-1">Multiplexer</h3>
           <div>
             <label className="text-sm font-medium">Terminal multiplexer</label>
             <select
@@ -427,8 +566,8 @@ export function SettingsPage() {
       )}
 
       {/* AI Summaries */}
-      <section className="space-y-4 max-w-lg mt-8">
-        <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide">AI Summaries</h2>
+      {activeCategory === "ai" && (
+      <section className="space-y-4">
         <p className="text-xs text-zinc-500">
           Use any OpenAI-compatible endpoint to auto-generate session titles and tags.
           Examples:
@@ -509,27 +648,67 @@ export function SettingsPage() {
             <input type="checkbox" checked={aiBatchForce} onChange={(e) => setAiBatchForce(e.target.checked)} />
             <span className="text-xs">Force regenerate (ignore cache)</span>
           </label>
-          <button
-            onClick={async () => {
-              if (!confirm("This will call the LLM for every session that has changed since last run. Continue?")) return;
-              setAiBatchRunning(true);
-              setAiBatchProgress({ current: 0, total: 0, ok: 0, skipped: 0, errors: 0 });
-              try {
-                const total = await generateAiSummariesBatch(aiBatchForce);
-                if (total === 0) {
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={async () => {
+                if (!confirm("This will call the LLM for every session that has changed since last run. Continue?")) return;
+                setAiBatchRunning(true);
+                setAiBatchProgress({ current: 0, total: 0, ok: 0, skipped: 0, errors: 0 });
+                try {
+                  const total = await generateAiSummariesBatch(aiBatchForce);
+                  if (total === 0) {
+                    setAiBatchRunning(false);
+                    toast.success("No sessions to process.");
+                  }
+                } catch (e) {
                   setAiBatchRunning(false);
-                  toast.success("No sessions to process.");
+                  toast.error(`Batch failed to start: ${e}`);
                 }
-              } catch (e) {
-                setAiBatchRunning(false);
-                toast.error(`Batch failed to start: ${e}`);
-              }
-            }}
-            disabled={aiBatchRunning || !aiCfg.baseUrl || !aiCfg.apiKey || !aiCfg.model}
-            className="px-3 py-1 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
-          >
-            {aiBatchRunning ? "Running..." : "Generate for all sessions"}
-          </button>
+              }}
+              disabled={aiBatchRunning || !aiCfg.baseUrl || !aiCfg.apiKey || !aiCfg.model}
+              className="px-3 py-1 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+            >
+              {aiBatchRunning ? "Running..." : "Generate for all sessions"}
+            </button>
+            <button
+              onClick={async () => {
+                // Live sessions only — pull current live monitor state and filter to those
+                // with a DB-backed session id (the ones that have actually been indexed).
+                let liveIds: number[] = [];
+                try {
+                  const live = await getLiveSessions();
+                  liveIds = live
+                    .map((s) => s.dbSessionId)
+                    .filter((id): id is number => id != null);
+                } catch (e) {
+                  toast.error(`Failed to fetch live sessions: ${e}`);
+                  return;
+                }
+                if (liveIds.length === 0) {
+                  toast.success("No live sessions right now.");
+                  return;
+                }
+                if (!confirm(`This will call the LLM for ${liveIds.length} currently live session(s). Continue?`)) return;
+                setAiBatchRunning(true);
+                setAiBatchProgress({ current: 0, total: 0, ok: 0, skipped: 0, errors: 0 });
+                try {
+                  const total = await generateAiSummariesBatch(aiBatchForce, liveIds);
+                  if (total === 0) {
+                    setAiBatchRunning(false);
+                    toast.success("No sessions to process.");
+                  }
+                } catch (e) {
+                  setAiBatchRunning(false);
+                  toast.error(`Batch failed to start: ${e}`);
+                }
+              }}
+              disabled={aiBatchRunning || !aiCfg.baseUrl || !aiCfg.apiKey || !aiCfg.model}
+              className="px-3 py-1 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+              title="Only process sessions whose Claude Code process is currently running"
+            >
+              {aiBatchRunning ? "Running..." : "Generate for all live sessions"}
+            </button>
+          </div>
           {aiBatchProgress && aiBatchProgress.total > 0 && (
             <div className="mt-2 text-xs text-zinc-500">
               {aiBatchProgress.current} / {aiBatchProgress.total}
@@ -540,52 +719,58 @@ export function SettingsPage() {
           )}
         </div>
       </section>
+      )}
 
-      {/* Save + Import/Export */}
-      <div className="mt-8 max-w-lg flex items-center gap-3">
-        <button
-          onClick={handleSave}
-          disabled={saving}
-          className="px-4 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
-        >
-          {migrating ? "Migrating backups..." : saving ? "Saving..." : saved ? "Saved!" : "Save"}
-        </button>
-        <button
-          onClick={async () => {
-            const filePath = await saveDialog({
-              defaultPath: "cc-session-settings.json",
-              filters: [{ name: "JSON", extensions: ["json"] }],
-            });
-            if (filePath) {
-              await exportSettingsToFile(filePath);
-            }
-          }}
-          className="px-4 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        >
-          Export
-        </button>
-        <button
-          onClick={async () => {
-            const filePath = await open({
-              multiple: false,
-              filters: [{ name: "JSON", extensions: ["json"] }],
-            });
-            if (filePath) {
-              try {
-                await importSettingsFromFile(filePath as string);
-                getBackupConfig().then((c) => { setConfig(c); setOriginalDir(c.backupDir); });
-                getTerminalConfig().then(setTermConfig);
-                getMultiplexerConfig().then(setMuxConfig);
-                getAutoHideConfig().then(setAutoHideConfigState);
-              } catch (e) {
-                toast.error(`Import failed: ${e}`);
+          </div>
+        </div>
+
+        {/* Sticky bottom action bar */}
+        <div className="border-t border-zinc-200 dark:border-zinc-800 px-8 py-3 flex items-center gap-3 bg-zinc-50 dark:bg-zinc-950">
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="px-4 py-1.5 bg-blue-600 text-white rounded text-sm hover:bg-blue-700 disabled:opacity-50"
+          >
+            {migrating ? "Migrating backups..." : saving ? "Saving..." : saved ? "Saved!" : "Save"}
+          </button>
+          <div className="flex-1" />
+          <button
+            onClick={async () => {
+              const filePath = await saveDialog({
+                defaultPath: "cc-session-settings.json",
+                filters: [{ name: "JSON", extensions: ["json"] }],
+              });
+              if (filePath) {
+                await exportSettingsToFile(filePath);
               }
-            }
-          }}
-          className="px-4 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
-        >
-          Import
-        </button>
+            }}
+            className="px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 bg-white dark:bg-zinc-900"
+          >
+            Export
+          </button>
+          <button
+            onClick={async () => {
+              const filePath = await open({
+                multiple: false,
+                filters: [{ name: "JSON", extensions: ["json"] }],
+              });
+              if (filePath) {
+                try {
+                  await importSettingsFromFile(filePath as string);
+                  getBackupConfig().then((c) => { setConfig(c); setOriginalDir(c.backupDir); });
+                  getTerminalConfig().then(setTermConfig);
+                  getMultiplexerConfig().then(setMuxConfig);
+                  getAutoHideConfig().then(setAutoHideConfigState);
+                } catch (e) {
+                  toast.error(`Import failed: ${e}`);
+                }
+              }
+            }}
+            className="px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 bg-white dark:bg-zinc-900"
+          >
+            Import
+          </button>
+        </div>
       </div>
     </div>
   );

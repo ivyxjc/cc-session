@@ -1,4 +1,4 @@
-use crate::pty::{PtySession, PtyState};
+use crate::pty::{PtyError, PtyResult, PtySession, PtyState};
 use base64::{engine::general_purpose::STANDARD as B64, Engine as _};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -15,7 +15,7 @@ pub fn pty_attach_multiplexer(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+) -> PtyResult<()> {
     let argv = match kind.as_str() {
         "tmux" => vec![
             "tmux".into(),
@@ -24,7 +24,7 @@ pub fn pty_attach_multiplexer(
             name,
         ],
         "zellij" => vec!["zellij".into(), "attach".into(), name],
-        other => return Err(format!("unsupported multiplexer: {}", other)),
+        other => return Err(PtyError::Generic(format!("unsupported multiplexer: {}", other))),
     };
     let session = PtySession::spawn(app, argv, cwd, cols.max(20), rows.max(5))?;
     state.replace(session);
@@ -41,7 +41,7 @@ pub fn pty_create_multiplexer(
     cwd: Option<String>,
     cols: u16,
     rows: u16,
-) -> Result<(), String> {
+) -> PtyResult<()> {
     let argv = match kind.as_str() {
         // tmux -A: attach if exists, else create
         "tmux" => vec![
@@ -58,7 +58,7 @@ pub fn pty_create_multiplexer(
             "--create".into(),
             name,
         ],
-        other => return Err(format!("unsupported multiplexer: {}", other)),
+        other => return Err(PtyError::Generic(format!("unsupported multiplexer: {}", other))),
     };
     let session = PtySession::spawn(app, argv, cwd, cols.max(20), rows.max(5))?;
     state.replace(session);
@@ -66,18 +66,20 @@ pub fn pty_create_multiplexer(
 }
 
 #[tauri::command]
-pub fn pty_write(state: State<'_, Arc<PtyState>>, data: String) -> Result<(), String> {
-    let bytes = B64.decode(data.as_bytes()).map_err(|e| format!("decode: {}", e))?;
+pub fn pty_write(state: State<'_, Arc<PtyState>>, data: String) -> PtyResult<()> {
+    let bytes = B64
+        .decode(data.as_bytes())
+        .map_err(|e| PtyError::Generic(format!("base64 decode: {}", e)))?;
     state.write(&bytes)
 }
 
 #[tauri::command]
-pub fn pty_resize(state: State<'_, Arc<PtyState>>, cols: u16, rows: u16) -> Result<(), String> {
+pub fn pty_resize(state: State<'_, Arc<PtyState>>, cols: u16, rows: u16) -> PtyResult<()> {
     state.resize(cols.max(20), rows.max(5))
 }
 
 #[tauri::command]
-pub fn pty_detach(state: State<'_, Arc<PtyState>>) -> Result<(), String> {
+pub fn pty_detach(state: State<'_, Arc<PtyState>>) -> PtyResult<()> {
     state.detach();
     Ok(())
 }

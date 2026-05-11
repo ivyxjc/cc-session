@@ -225,5 +225,5 @@ export const testAiSummaryConnection = (config: AiSummaryConfig) =>
   invoke<string>("test_ai_summary_connection", { config });
 export const generateAiSummary = (sessionDbId: number, force = true) =>
   invoke<AiSummaryResult>("generate_ai_summary", { sessionDbId, force });
-export const generateAiSummariesBatch = (force = false) =>
-  invoke<number>("generate_ai_summaries_batch", { force });
+export const generateAiSummariesBatch = (force = false, sessionIds?: number[]) =>
+  invoke<number>("generate_ai_summaries_batch", { force, sessionIds });

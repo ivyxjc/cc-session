@@ -177,6 +177,7 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
     struct Entry {
         name: String,
         is_exited: bool,
+        age_secs: u64, // newer (smaller age) first; u64::MAX if unparseable
     }
     let mut entries: Vec<Entry> = Vec::new();
     for line in output.lines() {
@@ -191,6 +192,7 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
         entries.push(Entry {
             name,
             is_exited: line.contains("EXITED"),
+            age_secs: parse_zellij_age_seconds(line).unwrap_or(u64::MAX),
         });
     }
 
@@ -214,7 +216,8 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
             .collect()
     });
 
-    let mut sessions = Vec::new();
+    // Build (age, session) pairs so we can sort by recency as a tertiary key.
+    let mut pairs: Vec<(u64, MultiplexerSession)> = Vec::new();
     for (i, e) in entries.into_iter().enumerate() {
         let status = if e.is_exited { "exited" } else { "active" };
         let cwd = cwds.get(i).cloned().flatten();
@@ -223,17 +226,20 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
             .map(|c| c.trim_end_matches('/') == project_path.trim_end_matches('/'))
             .unwrap_or(false);
         let attach_cmd = format!("zellij attach {}", shell_escape(&e.name));
-        sessions.push(MultiplexerSession {
-            name: e.name,
-            status: status.to_string(),
-            cwd,
-            matches_path,
-            attach_cmd,
-        });
+        pairs.push((
+            e.age_secs,
+            MultiplexerSession {
+                name: e.name,
+                status: status.to_string(),
+                cwd,
+                matches_path,
+                attach_cmd,
+            },
+        ));
     }
 
-    // Sort: matched first, then active, then exited
-    sessions.sort_by(|a, b| {
+    // Sort: cwd-matched first → active before exited → newest first (smallest age_secs).
+    pairs.sort_by(|(a_age, a), (b_age, b)| {
         b.matches_path
             .cmp(&a.matches_path)
             .then_with(|| {
@@ -241,7 +247,9 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
                 let b_active = b.status == "active";
                 b_active.cmp(&a_active)
             })
+            .then_with(|| a_age.cmp(b_age))
     });
+    let sessions: Vec<MultiplexerSession> = pairs.into_iter().map(|(_, s)| s).collect();
 
     let escaped_path = shell_escape(project_path);
     let base = shell_escape(basename(project_path));
@@ -277,6 +285,31 @@ fn get_zellij_cwd(session_name: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Parse zellij's `[Created Xd Yh Zm Ws]` segment into seconds, for "newest first" sorting.
+fn parse_zellij_age_seconds(line: &str) -> Option<u64> {
+    let marker = "[Created ";
+    let start = line.find(marker)? + marker.len();
+    let rel_end = line[start..].find(']')?;
+    let body = &line[start..start + rel_end];
+
+    let mut total: u64 = 0;
+    for part in body.split_whitespace() {
+        if part.len() < 2 {
+            return None;
+        }
+        let (num_part, unit) = part.split_at(part.len() - 1);
+        let n: u64 = num_part.parse().ok()?;
+        match unit {
+            "d" => total = total.saturating_add(n.saturating_mul(86400)),
+            "h" => total = total.saturating_add(n.saturating_mul(3600)),
+            "m" => total = total.saturating_add(n.saturating_mul(60)),
+            "s" => total = total.saturating_add(n),
+            _ => return None,
+        }
+    }
+    Some(total)
 }
 
 // --- tmux ---
