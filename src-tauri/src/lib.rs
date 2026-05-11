@@ -9,9 +9,11 @@ mod claude;
 mod codex;
 mod search;
 mod llm;
+mod pty;
 
 use db::Database;
 use monitor::LiveMonitor;
+use pty::PtyState;
 use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -22,12 +24,14 @@ pub fn run() {
     let _ = scanner::scan_all(&database);
 
     let live_monitor = Arc::new(LiveMonitor::new());
+    let pty_state = Arc::new(PtyState::new());
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .manage(database)
         .manage(live_monitor)
+        .manage(pty_state)
         .invoke_handler(tauri::generate_handler![
             commands::projects::list_projects,
             commands::sessions::list_sessions,
@@ -68,6 +72,7 @@ pub fn run() {
             commands::multiplexer::get_multiplexer_config,
             commands::multiplexer::set_multiplexer_config,
             commands::multiplexer::detect_multiplexer_sessions,
+            commands::multiplexer::find_session_for_pid,
             commands::settings_io::export_settings,
             commands::settings_io::import_settings,
             commands::settings_io::export_settings_to_file,
@@ -82,6 +87,11 @@ pub fn run() {
             commands::ai_summary::test_ai_summary_connection,
             commands::ai_summary::generate_ai_summary,
             commands::ai_summary::generate_ai_summaries_batch,
+            commands::pty::pty_attach_multiplexer,
+            commands::pty::pty_create_multiplexer,
+            commands::pty::pty_write,
+            commands::pty::pty_resize,
+            commands::pty::pty_detach,
             codex::commands::codex_get_session,
             codex::commands::codex_list_projects,
             codex::commands::codex_list_sessions,

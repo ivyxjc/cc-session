@@ -18,6 +18,7 @@ import { TagManager } from "../common/TagManager";
 import { TagBadge } from "../common/TagBadge";
 import { LiveStatusBadge } from "./LiveStatusBadge";
 import { RunningTimer } from "./RunningTimer";
+import { TerminalPane } from "../terminal/TerminalPane";
 import type { ToolResult } from "../../lib/toolResults";
 
 // --- Incremental tool results (task #10 inlined) ---
@@ -101,6 +102,7 @@ export function LiveConversationView() {
   const [showTagManager, setShowTagManager] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [tags, setTags] = useState<{ id: number; name: string; color: string }[]>([]);
+  const [showTerminal, setShowTerminal] = useState(false);
 
   const [subagentsExpanded, setSubagentsExpanded] = useState(false);
 
@@ -291,6 +293,17 @@ export function LiveConversationView() {
               )}
             </div>
           )}
+          <button
+            onClick={() => setShowTerminal((v) => !v)}
+            className={`text-sm px-2 py-0.5 border rounded ${
+              showTerminal
+                ? "border-emerald-400 bg-emerald-50 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-400"
+                : "border-zinc-300 dark:border-zinc-700 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+            }`}
+            title="Embed the matching multiplexer session in a terminal pane"
+          >
+            {showTerminal ? "Hide terminal" : "Terminal"}
+          </button>
           <OpenTerminalButton path={liveSession?.cwd || ""} sessionId={liveSession?.sessionId} />
           <MultiplexerButton path={liveSession?.cwd || ""} />
           {liveSession?.dbSessionId && (
@@ -319,40 +332,49 @@ export function LiveConversationView() {
         )}
       </div>
 
-      {/* Virtualized message list */}
-      <div className="flex-1">
-        <Virtuoso
-          ref={virtuosoRef}
-          data={messages}
-          firstItemIndex={firstItemIndex}
-          initialTopMostItemIndex={messages.length - 1}
-          followOutput={(isAtBottom) => isAtBottom ? "smooth" : false}
-          atBottomStateChange={(atBottom) => { atBottomRef.current = atBottom; }}
-          startReached={handleStartReached}
-          itemContent={(index, msg) => (
-            <div className="px-4 py-1.5">
-              <MessageBubble
-                key={getMessageKey(msg, index)}
-                message={msg}
-                subagents={subagents}
-                toolResults={toolResults}
-              />
-            </div>
-          )}
-          components={{
-            Header: () =>
-              hasOlderRef.current && loadingOlderRef.current ? (
-                <div className="text-center text-xs text-zinc-400 py-2">Loading older messages...</div>
-              ) : null,
-            Footer: () =>
-              liveSession?.isAlive ? (
-                <div className="flex items-center gap-2 text-xs text-zinc-400 px-4 py-2">
-                  <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-                  Watching for new messages...
-                </div>
-              ) : null,
-          }}
-        />
+      {/* Main area: either the message list OR the terminal (terminal takes full area to
+          avoid being the smallest zellij client and shrinking the user's other attached terminals). */}
+      <div className="flex-1 min-h-0">
+        {showTerminal ? (
+          <TerminalPane
+            cwd={liveSession?.cwd || ""}
+            livePid={liveSession?.pid}
+            onClose={() => setShowTerminal(false)}
+          />
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            data={messages}
+            firstItemIndex={firstItemIndex}
+            initialTopMostItemIndex={messages.length - 1}
+            followOutput={(isAtBottom) => isAtBottom ? "smooth" : false}
+            atBottomStateChange={(atBottom) => { atBottomRef.current = atBottom; }}
+            startReached={handleStartReached}
+            itemContent={(index, msg) => (
+              <div className="px-4 py-1.5">
+                <MessageBubble
+                  key={getMessageKey(msg, index)}
+                  message={msg}
+                  subagents={subagents}
+                  toolResults={toolResults}
+                />
+              </div>
+            )}
+            components={{
+              Header: () =>
+                hasOlderRef.current && loadingOlderRef.current ? (
+                  <div className="text-center text-xs text-zinc-400 py-2">Loading older messages...</div>
+                ) : null,
+              Footer: () =>
+                liveSession?.isAlive ? (
+                  <div className="flex items-center gap-2 text-xs text-zinc-400 px-4 py-2">
+                    <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                    Watching for new messages...
+                  </div>
+                ) : null,
+            }}
+          />
+        )}
       </div>
 
       {/* Subagents — collapsed by default, expands to 50% height */}

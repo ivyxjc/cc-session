@@ -125,6 +125,9 @@ export const setMultiplexerConfig = (config: MultiplexerConfig) =>
 export const detectMultiplexerSessions = (path: string, multiplexer: string) =>
   invoke<MultiplexerDetectionResult>("detect_multiplexer_sessions", { path, multiplexer });
 
+export const findSessionForPid = (pid: number, multiplexer: string) =>
+  invoke<string | null>("find_session_for_pid", { pid, multiplexer });
+
 // Settings import/export
 export const exportSettings = () =>
   invoke<string>("export_settings");
@@ -205,6 +208,13 @@ export const codexGetSubagentMessages = (threadId: string, offset = 0, limit = 2
 // Content search
 export const searchMessageContent = (query: string, limit = 50) =>
   invoke<ContentSearchResult[]>("search_message_content", { query, limit });
+
+// PTY (embedded multiplexer terminal)
+export const ptyAttachMultiplexer = (kind: string, name: string, cwd: string, cols: number, rows: number) =>
+  invoke<void>("pty_attach_multiplexer", { kind, name, cwd, cols, rows });
+export const ptyCreateMultiplexer = (kind: string, name: string, cwd: string, cols: number, rows: number) =>
+  invoke<void>("pty_create_multiplexer", { kind, name, cwd, cols, rows });
+export const ptyDetach = () => invoke<void>("pty_detach");
 
 // AI summary
 export const getAiSummaryConfig = () =>

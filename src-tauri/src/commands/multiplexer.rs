@@ -173,47 +173,58 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
     let output = run_cmd(&bin, &["list-sessions", "-n"], 3)
         .unwrap_or_default();
 
-    let mut sessions = Vec::new();
-
+    // First pass: collect raw entries (cheap, no subprocess).
+    struct Entry {
+        name: String,
+        is_exited: bool,
+    }
+    let mut entries: Vec<Entry> = Vec::new();
     for line in output.lines() {
         let line = line.trim();
         if line.is_empty() {
             continue;
         }
-
-        // Parse: "name [Created Xm ago] (status)"
         let name = line.split_whitespace().next().unwrap_or("").to_string();
         if name.is_empty() {
             continue;
         }
+        entries.push(Entry {
+            name,
+            is_exited: line.contains("EXITED"),
+        });
+    }
 
-        let is_exited = line.contains("EXITED");
-        let is_current = line.contains("(current)");
-        let status = if is_exited {
-            "exited"
-        } else {
-            "active"
-        };
+    // Second pass: parallel `zellij action dump-layout` per active session to fetch cwd.
+    // Sequential blew up the UX (N × 1-2s); thread::scope keeps it under 1.5s.
+    let cwds: Vec<Option<String>> = std::thread::scope(|s| {
+        let handles: Vec<_> = entries
+            .iter()
+            .map(|e| {
+                if e.is_exited {
+                    None
+                } else {
+                    let name = e.name.clone();
+                    Some(s.spawn(move || get_zellij_cwd(&name)))
+                }
+            })
+            .collect();
+        handles
+            .into_iter()
+            .map(|h| h.and_then(|h| h.join().ok()).flatten())
+            .collect()
+    });
 
-        // Try to get cwd for active sessions (not current, not exited)
-        let cwd = if !is_exited && !is_current {
-            get_zellij_cwd(&name)
-        } else if is_current {
-            // Current session — can still query
-            get_zellij_cwd(&name)
-        } else {
-            None
-        };
-
+    let mut sessions = Vec::new();
+    for (i, e) in entries.into_iter().enumerate() {
+        let status = if e.is_exited { "exited" } else { "active" };
+        let cwd = cwds.get(i).cloned().flatten();
         let matches_path = cwd
             .as_ref()
             .map(|c| c.trim_end_matches('/') == project_path.trim_end_matches('/'))
             .unwrap_or(false);
-
-        let attach_cmd = format!("zellij attach {}", shell_escape(&name));
-
+        let attach_cmd = format!("zellij attach {}", shell_escape(&e.name));
         sessions.push(MultiplexerSession {
-            name,
+            name: e.name,
             status: status.to_string(),
             cwd,
             matches_path,
@@ -251,7 +262,7 @@ fn get_zellij_cwd(session_name: &str) -> Option<String> {
     let output = run_cmd(
         &bin,
         &["-s", session_name, "action", "dump-layout"],
-        2,
+        1,
     )?;
 
     // Parse: layout { cwd "/path/to/project"
@@ -322,4 +333,152 @@ fn detect_tmux(project_path: &str) -> Result<MultiplexerDetectionResult, String>
         sessions,
         new_session_cmd,
     })
+}
+
+// --- Precise per-PID session lookup ---
+//
+// Given a PID (e.g. the live Claude Code process), find the multiplexer session it
+// is running inside by reading the process's environment:
+//   - zellij: ZELLIJ_SESSION_NAME directly names the session
+//   - tmux:   TMUX_PANE gives a pane id, then `tmux display-message` resolves it to a session
+//
+// This is more accurate than the cwd heuristic since it follows the actual process tree.
+
+use std::collections::HashMap;
+
+fn read_pid_env(pid: u32) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) = std::fs::read(format!("/proc/{}/environ", pid)) {
+            for entry in content.split(|&b| b == 0) {
+                if let Ok(s) = std::str::from_utf8(entry) {
+                    if let Some((k, v)) = s.split_once('=') {
+                        map.insert(k.to_string(), v.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        // sysctl KERN_PROCARGS2 → returns argc + exec_path + argv + envp
+        let mut mib: [libc::c_int; 3] = [libc::CTL_KERN, libc::KERN_PROCARGS2, pid as libc::c_int];
+        let mut size: libc::size_t = 0;
+        let ret = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                3,
+                std::ptr::null_mut(),
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if ret != 0 || size == 0 {
+            return map;
+        }
+        let mut buf: Vec<u8> = vec![0u8; size];
+        let ret = unsafe {
+            libc::sysctl(
+                mib.as_mut_ptr(),
+                3,
+                buf.as_mut_ptr() as *mut libc::c_void,
+                &mut size,
+                std::ptr::null_mut(),
+                0,
+            )
+        };
+        if ret != 0 {
+            return map;
+        }
+        buf.truncate(size);
+        if buf.len() < 4 {
+            return map;
+        }
+
+        // Layout:
+        //   int argc;          // 4 bytes (native endian)
+        //   char exec_path[];  // null-terminated
+        //   char padding[];    // null bytes until argv starts (8-byte aligned)
+        //   char argv[argc][]; // each null-terminated
+        //   char envp[][];     // each null-terminated, ends at buf end
+        let argc = u32::from_ne_bytes([buf[0], buf[1], buf[2], buf[3]]) as usize;
+        let mut idx = 4usize;
+
+        // Skip exec_path
+        while idx < buf.len() && buf[idx] != 0 {
+            idx += 1;
+        }
+        // Skip padding nulls
+        while idx < buf.len() && buf[idx] == 0 {
+            idx += 1;
+        }
+
+        // Skip argc args
+        let mut count = 0;
+        while count < argc && idx < buf.len() {
+            while idx < buf.len() && buf[idx] != 0 {
+                idx += 1;
+            }
+            idx += 1;
+            count += 1;
+        }
+
+        // Parse envp
+        while idx < buf.len() {
+            let start = idx;
+            while idx < buf.len() && buf[idx] != 0 {
+                idx += 1;
+            }
+            if start == idx {
+                break;
+            }
+            if let Ok(s) = std::str::from_utf8(&buf[start..idx]) {
+                if let Some((k, v)) = s.split_once('=') {
+                    map.insert(k.to_string(), v.to_string());
+                }
+            }
+            idx += 1;
+        }
+    }
+
+    let _ = pid; // suppress unused warning on platforms without an impl
+    map
+}
+
+#[tauri::command]
+pub fn find_session_for_pid(
+    pid: u32,
+    multiplexer: String,
+) -> Result<Option<String>, String> {
+    match multiplexer.as_str() {
+        "zellij" => {
+            let env = read_pid_env(pid);
+            Ok(env.get("ZELLIJ_SESSION_NAME").cloned().filter(|s| !s.is_empty()))
+        }
+        "tmux" => {
+            let env = read_pid_env(pid);
+            let Some(pane) = env.get("TMUX_PANE").filter(|s| !s.is_empty()) else {
+                return Ok(None);
+            };
+            let bin = match find_binary("tmux") {
+                Some(b) => b,
+                None => return Ok(None),
+            };
+            let output = Command::new(&bin)
+                .args(["display-message", "-p", "-t", pane, "#{session_name}"])
+                .output();
+            match output {
+                Ok(out) if out.status.success() => {
+                    let name = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    Ok(if name.is_empty() { None } else { Some(name) })
+                }
+                _ => Ok(None),
+            }
+        }
+        _ => Ok(None),
+    }
 }

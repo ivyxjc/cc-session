@@ -13,16 +13,18 @@ export default defineConfig(async () => ({
   //
   // 1. prevent Vite from obscuring rust errors
   clearScreen: false,
-  // 2. tauri expects a fixed port, fail if that port is not available
+  // 2. Use a project-specific port (1430 instead of Tauri's default 1420) to reduce
+  //    collisions with other Tauri projects, and let Vite fall through when even 1430
+  //    is taken. Tauri 2 picks up the real URL from Vite's "Local: http://..." stdout.
   server: {
-    port: 1420,
-    strictPort: true,
+    port: 1430,
+    strictPort: false,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: 1431,
         }
       : undefined,
     watch: {

@@ -54,10 +54,10 @@ export function SessionCard({ session, onHide }: { session: SessionSummary; show
           </button>
         </div>
       </div>
-      <div className="flex items-center gap-2 mt-1 text-xs text-zinc-500">
-        <span className="truncate">{session.projectName}</span>
+      <div className="flex items-baseline gap-2 mt-1">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{session.projectName}</span>
         <CopyText text={session.sessionId} display={session.sessionId.slice(0, 8)} className="text-xs text-zinc-400 font-mono" />
-        <span className="truncate">{session.gitBranch || "\u2014"}</span>
+        <span className="text-xs text-zinc-500 truncate">{session.gitBranch || "\u2014"}</span>
       </div>
       <div className="text-xs text-zinc-400 mt-0.5 truncate font-mono">
         {session.projectPath}

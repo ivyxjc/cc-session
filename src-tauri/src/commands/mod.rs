@@ -14,3 +14,4 @@ pub mod usage;
 pub mod export;
 pub mod search;
 pub mod ai_summary;
+pub mod pty;
