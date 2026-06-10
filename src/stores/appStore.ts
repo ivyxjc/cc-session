@@ -1,7 +1,7 @@
 import { create } from "zustand";
 import type { ContentSearchResult } from "../lib/types";
 
-type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation" | "usage" | "codexProjects" | "codexSessions" | "codexConversation";
+type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation" | "usage" | "dayPlanner" | "codexProjects" | "codexSessions" | "codexConversation";
 type Provider = "claude" | "codex";
 
 interface AppState {

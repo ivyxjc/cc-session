@@ -90,6 +90,8 @@ pub fn run() {
             commands::pty::pty_write,
             commands::pty::pty_resize,
             commands::pty::pty_detach,
+            commands::day_planner::get_day_planner,
+            commands::day_planner::generate_daily_summary,
             codex::commands::codex_get_session,
             codex::commands::codex_list_projects,
             codex::commands::codex_list_sessions,

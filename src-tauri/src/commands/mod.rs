@@ -15,3 +15,4 @@ pub mod export;
 pub mod search;
 pub mod ai_summary;
 pub mod pty;
+pub mod day_planner;

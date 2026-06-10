@@ -9,6 +9,18 @@ import { DiffView } from "./DiffView";
 import { CodeBlock } from "./CodeBlock";
 import { extractImagePath, ImageFromPath } from "./ImageFromPath";
 import { CopyButton } from "../common/CopyButton";
+import { formatDateTime } from "../../lib/format";
+
+function MessageTime({ timestamp }: { timestamp: string | null }) {
+  if (!timestamp) return null;
+  const ms = Date.parse(timestamp);
+  if (Number.isNaN(ms)) return null;
+  return (
+    <span className="text-xs text-zinc-400 shrink-0 tabular-nums">
+      {formatDateTime(ms)}
+    </span>
+  );
+}
 
 function blockToText(block: ViewContentBlock): string {
   switch (block.type) {
@@ -167,6 +179,7 @@ export const MessageBubble = memo(function MessageBubble({ message, subagents, t
         <div className="flex-1 min-w-0">
           {message.subtype && <span className="font-medium">[{message.subtype}]</span>} {message.content}
         </div>
+        <MessageTime timestamp={message.timestamp} />
         <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
           <CopyButton text={messageToText(message)} title="Copy message" />
         </span>
@@ -194,6 +207,7 @@ export const MessageBubble = memo(function MessageBubble({ message, subagents, t
           <div className="text-xs font-medium text-zinc-500 flex-1 min-w-0 truncate">
             {isUser ? "You" : `Claude${message.type === "assistant" && message.model ? ` (${message.model})` : ""}`}
           </div>
+          <MessageTime timestamp={message.timestamp} />
           <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
             <CopyButton text={messageToText(message)} title="Copy message" />
           </span>

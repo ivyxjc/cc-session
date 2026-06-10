@@ -136,6 +136,12 @@ export const importSettingsFromFile = (path: string) =>
   invoke<void>("import_settings_from_file", { path });
 
 // Usage
+export const getDayPlanner = (startMs: number, endMs: number, date?: string) =>
+  invoke<import("./types").DayPlannerBlock[]>("get_day_planner", { startMs, endMs, date });
+
+export const generateDailySummary = (date: string, startMs: number, endMs: number, force = false) =>
+  invoke<import("./types").DailyReport>("generate_daily_summary", { date, startMs, endMs, force });
+
 export const getDailyUsage = (days?: number) =>
   invoke<import("./types").DailyUsage[]>("get_daily_usage", { days });
 

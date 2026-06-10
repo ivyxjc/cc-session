@@ -128,6 +128,47 @@ export interface AutoHideConfig {
   minMessageCount: number;
 }
 
+export interface DayPlannerBlock {
+  sessionDbId: number;
+  sessionId: string;
+  projectName: string;
+  /** Session-level summary (whole arc). Fallback when daily summary not yet generated. */
+  title: string;
+  /** Session-level AI tags. */
+  aiTags: string[];
+  /** Day-specific summary from the daily map-reduce, when cached. Prefer over `title`. */
+  dailySummary: string | null;
+  /** Day-specific tags. */
+  dailyTags: string[];
+  /** Absolute timestamps in UTC ms. Render labels with `new Date(...)` for OS-local HH:MM. */
+  startMs: number;
+  endMs: number;
+}
+
+export interface DailySessionSummary {
+  sessionDbId: number;
+  sessionId: string;
+  projectName: string;
+  summary: string;
+  tags: string[];
+  startMs: number;
+  endMs: number;
+}
+
+export interface DailySessionError {
+  sessionDbId: number;
+  sessionId: string;
+  projectName: string;
+  error: string;
+}
+
+export interface DailyReport {
+  date: string;
+  narrative: string;       // Markdown
+  perSession: DailySessionSummary[];
+  errors: DailySessionError[];
+}
+
 export interface DailyUsage {
   date: string;
   sessionCount: number;

@@ -124,6 +124,23 @@ impl Database {
             CREATE INDEX IF NOT EXISTS idx_backups_session       ON backups(session_id);
             CREATE INDEX IF NOT EXISTS idx_subagents_session     ON subagents(session_id);
 
+            CREATE TABLE IF NOT EXISTS daily_session_summaries (
+                session_db_id INTEGER NOT NULL,
+                date          TEXT NOT NULL,
+                summary       TEXT,
+                tags          TEXT,
+                input_hash    TEXT,
+                generated_at  INTEGER,
+                PRIMARY KEY (session_db_id, date)
+            );
+
+            CREATE TABLE IF NOT EXISTS daily_summaries (
+                date          TEXT PRIMARY KEY,
+                narrative     TEXT,
+                source_hash   TEXT,
+                generated_at  INTEGER
+            );
+
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
                 content,
                 session_db_id UNINDEXED,

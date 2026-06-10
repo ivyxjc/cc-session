@@ -51,8 +51,16 @@ impl LlmInput {
     }
 }
 
-/// Read a JSONL session and produce the LLM input slice.
-pub fn build(jsonl_path: &Path) -> Result<LlmInput, String> {
+/// Read a JSONL session and produce the LLM input slice for a specific time
+/// window. If `window` is None, the entire session is considered.
+///
+/// Window semantics: anchor is the first real user message **within the window**
+/// (not the session's very first message); tail walks backward through window
+/// messages; tool stats count only tools used in the window.
+pub fn build_for_window(
+    jsonl_path: &Path,
+    window: Option<(i64, i64)>,
+) -> Result<LlmInput, String> {
     let file = File::open(jsonl_path).map_err(|e| format!("open: {}", e))?;
     let reader = BufReader::new(file);
 
@@ -63,6 +71,18 @@ pub fn build(jsonl_path: &Path) -> Result<LlmInput, String> {
             continue;
         }
         if let Ok(v) = serde_json::from_str::<Value>(&line) {
+            // Filter by window if provided.
+            if let Some((start_ms, end_ms)) = window {
+                let ts_ms = v
+                    .get("timestamp")
+                    .and_then(|t| t.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.timestamp_millis());
+                match ts_ms {
+                    Some(ts) if ts >= start_ms && ts <= end_ms => {}
+                    _ => continue,
+                }
+            }
             messages.push(v);
         }
     }

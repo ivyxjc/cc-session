@@ -124,7 +124,7 @@ pub async fn generate_for_session(
 
     // Build LLM input slice (sync work).
     let path = PathBuf::from(&jsonl_path);
-    let input = input_builder::build(&path).map_err(GenError::Build)?;
+    let input = input_builder::build_for_window(&path, None).map_err(GenError::Build)?;
     let rendered = input.render();
     let new_hash = format!("{}:{:x}", SCHEMA_VERSION, Sha256::digest(rendered.as_bytes()));
 
