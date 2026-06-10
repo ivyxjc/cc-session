@@ -13,12 +13,24 @@ import {
   ptyCreateMultiplexer,
   ptyDetach,
 } from "../../lib/tauri";
+import { getTerminalFontFamily, onTerminalSettingsChange } from "../../lib/fonts";
 import {
-  getTerminalFontFamily,
-  getTerminalFontSize,
-  getTerminalLineHeight,
-  onTerminalSettingsChange,
-} from "../../lib/fonts";
+  clearDisplayOverride,
+  DISPLAY_FONT_SIZE_MAX,
+  DISPLAY_FONT_SIZE_MIN,
+  DISPLAY_FONT_SIZE_STEP,
+  DISPLAY_LETTER_SPACING_MAX,
+  DISPLAY_LETTER_SPACING_MIN,
+  DISPLAY_LETTER_SPACING_STEP,
+  DISPLAY_LINE_HEIGHT_MAX,
+  DISPLAY_LINE_HEIGHT_MIN,
+  DISPLAY_LINE_HEIGHT_STEP,
+  getDisplayOverride,
+  resolveDisplay,
+  saveDisplayOverride,
+  type TerminalDisplay,
+  type TerminalDisplayOverride,
+} from "../../lib/terminalDisplay";
 import type { MultiplexerSession } from "../../lib/types";
 
 interface OutputPayload {
@@ -68,6 +80,75 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [createName, setCreateName] = useState<string>("");
 
+  // Per-cwd display tuning (font size / line height / letter spacing) so the
+  // pane's grid can be made ≥ the external terminal's and a shared zellij
+  // session isn't shrunk by attaching here.
+  const [display, setDisplay] = useState<TerminalDisplay>(() => resolveDisplay(cwd));
+  const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
+  const [showDisplaySettings, setShowDisplaySettings] = useState(false);
+  const displayPopoverRef = useRef<HTMLDivElement>(null);
+  const overrideRef = useRef<TerminalDisplayOverride>(getDisplayOverride(cwd));
+  const applyTimerRef = useRef<number | null>(null);
+
+  // Debounced apply: sliders update state instantly; the terminal (and the
+  // pty_resize that follows fit()) only sees the value 120ms after the last
+  // change, so the shared session doesn't bounce while dragging.
+  const updateDisplay = useCallback((patch: Partial<TerminalDisplay>) => {
+    setDisplay((prev) => {
+      const next = { ...prev, ...patch };
+      overrideRef.current = { ...overrideRef.current, ...patch };
+      if (applyTimerRef.current != null) window.clearTimeout(applyTimerRef.current);
+      applyTimerRef.current = window.setTimeout(() => {
+        applyTimerRef.current = null;
+        const term = termRef.current;
+        const fit = fitRef.current;
+        if (term && fit) {
+          try {
+            term.options.fontSize = next.fontSize;
+            term.options.lineHeight = next.lineHeight;
+            term.options.letterSpacing = next.letterSpacing;
+            fit.fit();
+          } catch {
+            // term disposed or host not sized — ignore
+          }
+        }
+        saveDisplayOverride(cwd, overrideRef.current);
+      }, 120);
+      return next;
+    });
+  }, [cwd]);
+
+  const resetDisplay = useCallback(() => {
+    clearDisplayOverride(cwd);
+    overrideRef.current = {};
+    const d = resolveDisplay(cwd);
+    setDisplay(d);
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (term && fit) {
+      try {
+        term.options.fontSize = d.fontSize;
+        term.options.lineHeight = d.lineHeight;
+        term.options.letterSpacing = d.letterSpacing;
+        fit.fit();
+      } catch {
+        // term disposed or host not sized — ignore
+      }
+    }
+  }, [cwd]);
+
+  // Close the display popover on outside click.
+  useEffect(() => {
+    if (!showDisplaySettings) return;
+    const handler = (e: MouseEvent) => {
+      if (displayPopoverRef.current && !displayPopoverRef.current.contains(e.target as Node)) {
+        setShowDisplaySettings(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [showDisplaySettings]);
+
   // Set up xterm.js once.
   useEffect(() => {
     const host = hostRef.current;
@@ -77,10 +158,12 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     let unlistenOutput: UnlistenFn | null = null;
     let unlistenExit: UnlistenFn | null = null;
 
+    const initial = resolveDisplay(cwd);
     const term = new Terminal({
-      fontSize: getTerminalFontSize(),
+      fontSize: initial.fontSize,
       fontFamily: getTerminalFontFamily(),
-      lineHeight: getTerminalLineHeight(),
+      lineHeight: initial.lineHeight,
+      letterSpacing: initial.letterSpacing,
       cursorBlink: true,
       allowProposedApi: true,
       theme: {
@@ -125,6 +208,7 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     requestAnimationFrame(() => {
       if (cancelled) return;
       try { fit.fit(); } catch { /* host not yet sized */ }
+      setGrid({ cols: term.cols, rows: term.rows });
 
       // Fast path priority:
       //   1. PID-based exact match (most accurate — finds the actual session containing
@@ -187,6 +271,7 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     });
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
+      setGrid({ cols, rows });
       if (!attachedRef.current) return;
       invoke("pty_resize", { cols, rows }).catch(() => {});
     });
@@ -201,10 +286,15 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     // PTY size matches the new cell grid.
     const unlistenSettings = onTerminalSettingsChange(() => {
       if (cancelled) return;
+      // Re-resolve so per-cwd overridden fields keep winning while
+      // un-overridden ones follow the new global values.
+      const d = resolveDisplay(cwd);
+      setDisplay(d);
       try {
         term.options.fontFamily = getTerminalFontFamily();
-        term.options.fontSize = getTerminalFontSize();
-        term.options.lineHeight = getTerminalLineHeight();
+        term.options.fontSize = d.fontSize;
+        term.options.lineHeight = d.lineHeight;
+        term.options.letterSpacing = d.letterSpacing;
         fit.fit();
       } catch {
         // term disposed or host not sized — ignore
@@ -213,6 +303,10 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
 
     return () => {
       cancelled = true;
+      if (applyTimerRef.current != null) {
+        window.clearTimeout(applyTimerRef.current);
+        applyTimerRef.current = null;
+      }
       ro.disconnect();
       unlistenSettings();
       onDataDisposable.dispose();
@@ -326,7 +420,66 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
         {status === "attached" && (
           <span className="text-emerald-400 text-[10px]">● attached</span>
         )}
+        {grid && (
+          <span
+            className="text-zinc-500 font-mono text-[10px]"
+            title="Terminal grid (cols×rows). Keep it ≥ your external terminal's grid so attaching here doesn't shrink the shared session."
+          >
+            {grid.cols}×{grid.rows}
+          </span>
+        )}
         <div className="flex-1" />
+        <div className="relative" ref={displayPopoverRef}>
+          <button
+            onClick={() => setShowDisplaySettings((v) => !v)}
+            className="px-2 py-0.5 text-xs border border-zinc-700 rounded hover:bg-zinc-800"
+            title="Display settings (font size / line height / letter spacing, per project)"
+          >
+            Aa
+          </button>
+          {showDisplaySettings && (
+            <div className="absolute right-0 top-7 z-30 w-64 p-3 bg-zinc-900 border border-zinc-700 rounded-lg shadow-lg space-y-3">
+              <DisplaySlider
+                label="Font size"
+                value={display.fontSize}
+                min={DISPLAY_FONT_SIZE_MIN}
+                max={DISPLAY_FONT_SIZE_MAX}
+                step={DISPLAY_FONT_SIZE_STEP}
+                format={(v) => `${v}px`}
+                onChange={(v) => updateDisplay({ fontSize: v })}
+              />
+              <DisplaySlider
+                label="Line height"
+                value={display.lineHeight}
+                min={DISPLAY_LINE_HEIGHT_MIN}
+                max={DISPLAY_LINE_HEIGHT_MAX}
+                step={DISPLAY_LINE_HEIGHT_STEP}
+                format={(v) => v.toFixed(2)}
+                onChange={(v) => updateDisplay({ lineHeight: v })}
+              />
+              <DisplaySlider
+                label="Letter spacing"
+                value={display.letterSpacing}
+                min={DISPLAY_LETTER_SPACING_MIN}
+                max={DISPLAY_LETTER_SPACING_MAX}
+                step={DISPLAY_LETTER_SPACING_STEP}
+                format={(v) => `${v}px`}
+                onChange={(v) => updateDisplay({ letterSpacing: v })}
+              />
+              <div className="flex items-center justify-between pt-1 border-t border-zinc-800">
+                <span className="text-zinc-500 font-mono text-[10px]">
+                  {grid ? `${grid.cols}×${grid.rows}` : "—"}
+                </span>
+                <button
+                  onClick={resetDisplay}
+                  className="px-2 py-0.5 text-[10px] border border-zinc-700 rounded hover:bg-zinc-800 text-zinc-400"
+                >
+                  Reset to defaults
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
         {status === "attached" && (
           <button
             onClick={detach}
@@ -417,6 +570,42 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
       )}
 
       <div ref={hostRef} className="flex-1 min-h-0 overflow-hidden" />
+    </div>
+  );
+}
+
+function DisplaySlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  format,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  format: (v: number) => string;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <div className="flex items-center justify-between text-[10px] text-zinc-400 mb-1">
+        <span>{label}</span>
+        <span className="font-mono">{format(value)}</span>
+      </div>
+      <input
+        type="range"
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        onChange={(e) => onChange(Number(e.target.value))}
+        className="w-full h-1 accent-emerald-500 cursor-pointer"
+      />
     </div>
   );
 }
