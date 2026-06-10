@@ -230,7 +230,11 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
   }, []);
 
   // Detect multiplexer + matching sessions for this cwd.
+  // The fast-path attach (PID/cache based) runs concurrently with this — once
+  // it wins, detection results must not clobber the "attached" status, or the
+  // selector overlay would reappear over a live terminal.
   const refreshSessions = useCallback(async () => {
+    if (attachedRef.current) return;
     setStatus("loading");
     setErrorMsg(null);
     try {
@@ -244,8 +248,9 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
       setMultiplexer(cfg.multiplexer);
       const result = await detectMultiplexerSessions(cwd, cfg.multiplexer);
       setSessions(result.sessions);
-      setStatus("ready");
+      if (!attachedRef.current) setStatus("ready");
     } catch (e) {
+      if (attachedRef.current) return;
       setStatus("error");
       setErrorMsg(String(e));
     }

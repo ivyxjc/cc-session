@@ -95,30 +95,38 @@ fn run_cmd(cmd: &str, args: &[&str], timeout_secs: u64) -> Option<String> {
         .spawn()
         .ok()?;
 
+    // Drain stdout on a separate thread while we poll for exit — if we only
+    // read after exit, a child producing more than the OS pipe buffer (~64KB)
+    // blocks forever on write and we'd kill it at the timeout.
+    let mut stdout = child.stdout.take()?;
+    let reader = std::thread::spawn(move || {
+        use std::io::Read;
+        let mut output = String::new();
+        let _ = stdout.read_to_string(&mut output);
+        output
+    });
+
     // Wait with timeout
     let start = std::time::Instant::now();
     loop {
         match child.try_wait() {
             Ok(Some(status)) => {
-                if status.success() {
-                    let mut output = String::new();
-                    if let Some(mut stdout) = child.stdout.take() {
-                        use std::io::Read;
-                        stdout.read_to_string(&mut output).ok()?;
-                    }
-                    return Some(output);
-                } else {
-                    return None;
-                }
+                let output = reader.join().ok()?;
+                return if status.success() { Some(output) } else { None };
             }
             Ok(None) => {
                 if start.elapsed() > Duration::from_secs(timeout_secs) {
                     let _ = child.kill();
+                    let _ = child.wait(); // reap, don't leave a zombie
                     return None;
                 }
-                std::thread::sleep(Duration::from_millis(50));
+                std::thread::sleep(Duration::from_millis(20));
             }
-            Err(_) => return None,
+            Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return None;
+            }
         }
     }
 }
@@ -140,7 +148,26 @@ fn basename(path: &str) -> &str {
 
 // --- Zellij ---
 
-fn find_binary(name: &str) -> Option<String> {
+/// Resolve a multiplexer binary to an invocable path. Successful lookups are
+/// cached for the app's lifetime — probing spawns a `--version` subprocess,
+/// and detection used to re-probe once per session. Misses are not cached so
+/// installing the binary while the app runs is picked up.
+pub fn find_binary(name: &str) -> Option<String> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<HashMap<String, String>>> =
+        std::sync::OnceLock::new();
+    let cache = CACHE.get_or_init(|| std::sync::Mutex::new(HashMap::new()));
+    if let Some(hit) = cache.lock().unwrap().get(name) {
+        return Some(hit.clone());
+    }
+    let resolved = find_binary_uncached(name)?;
+    cache
+        .lock()
+        .unwrap()
+        .insert(name.to_string(), resolved.clone());
+    Some(resolved)
+}
+
+fn find_binary_uncached(name: &str) -> Option<String> {
     // Try direct command first
     if Command::new(name)
         .arg("--version")
@@ -206,7 +233,8 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
                     None
                 } else {
                     let name = e.name.clone();
-                    Some(s.spawn(move || get_zellij_cwd(&name)))
+                    let bin = bin.clone();
+                    Some(s.spawn(move || get_zellij_cwd(&bin, &name)))
                 }
             })
             .collect();
@@ -265,10 +293,9 @@ fn detect_zellij(project_path: &str) -> Result<MultiplexerDetectionResult, Strin
     })
 }
 
-fn get_zellij_cwd(session_name: &str) -> Option<String> {
-    let bin = find_binary("zellij")?;
+fn get_zellij_cwd(bin: &str, session_name: &str) -> Option<String> {
     let output = run_cmd(
-        &bin,
+        bin,
         &["-s", session_name, "action", "dump-layout"],
         1,
     )?;

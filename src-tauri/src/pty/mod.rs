@@ -127,21 +127,43 @@ impl PtySession {
             .try_clone_reader()
             .map_err(|e| PtyError::Generic(e.to_string()))?;
 
-        let app_for_thread = app.clone();
+        // Reader thread pushes raw chunks into a channel; the emitter thread
+        // coalesces whatever queued up while it was emitting the previous
+        // batch. Under heavy output (builds, `cat` of a big file) this turns
+        // thousands of per-4KB IPC events into a few large ones, without
+        // adding latency to the interactive keystroke-echo path.
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
         std::thread::spawn(move || {
-            let mut buf = [0u8; 4096];
+            let mut buf = [0u8; 8192];
             loop {
                 match reader.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
-                        let payload = OutputPayload {
-                            data: B64.encode(&buf[..n]),
-                        };
-                        if app_for_thread.emit("pty://output", payload).is_err() {
+                        if tx.send(buf[..n].to_vec()).is_err() {
                             break;
                         }
                     }
                     Err(_) => break,
+                }
+            }
+        });
+
+        const MAX_BATCH: usize = 256 * 1024;
+        let app_for_thread = app.clone();
+        std::thread::spawn(move || {
+            while let Ok(first) = rx.recv() {
+                let mut batch = first;
+                while batch.len() < MAX_BATCH {
+                    match rx.try_recv() {
+                        Ok(more) => batch.extend_from_slice(&more),
+                        Err(_) => break,
+                    }
+                }
+                let payload = OutputPayload {
+                    data: B64.encode(&batch),
+                };
+                if app_for_thread.emit("pty://output", payload).is_err() {
+                    break;
                 }
             }
             let _ = app_for_thread.emit("pty://exit", ());

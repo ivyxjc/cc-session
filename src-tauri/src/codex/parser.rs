@@ -83,7 +83,10 @@ pub fn load_latest_messages(path: &Path, count: usize) -> Result<(Vec<CodexRespo
     let file = File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
     let reader = BufReader::new(file);
 
-    let mut all_items = Vec::new();
+    // Ring buffer of the last `count` items — keeps memory bounded for large
+    // session files instead of materializing every parsed item.
+    let mut tail: std::collections::VecDeque<CodexResponseItem> = std::collections::VecDeque::new();
+    let mut total = 0usize;
 
     for line in reader.lines() {
         let line = line.map_err(|e| format!("Read error: {}", e))?;
@@ -97,15 +100,17 @@ pub fn load_latest_messages(path: &Path, count: usize) -> Result<(Vec<CodexRespo
         };
 
         if let Some(item) = parse_event(&event) {
-            all_items.push(item);
+            total += 1;
+            if count > 0 {
+                if tail.len() == count {
+                    tail.pop_front();
+                }
+                tail.push_back(item);
+            }
         }
     }
 
-    let total = all_items.len();
-    let skip = total.saturating_sub(count);
-    let messages = all_items.into_iter().skip(skip).collect();
-
-    Ok((messages, total))
+    Ok((tail.into_iter().collect(), total))
 }
 
 fn parse_event(event: &CodexEvent) -> Option<CodexResponseItem> {

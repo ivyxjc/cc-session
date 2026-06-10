@@ -58,8 +58,13 @@ fn codex_db_path() -> Option<PathBuf> {
 fn open_codex_db() -> Result<Connection, String> {
     let path = codex_db_path()
         .ok_or_else(|| "Codex database not found at ~/.codex/state_5.sqlite".to_string())?;
-    Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| format!("Failed to open Codex DB: {}", e))
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|e| format!("Failed to open Codex DB: {}", e))?;
+    // Codex writes to this DB live; without a busy timeout reads fail hard
+    // with SQLITE_BUSY whenever they collide with a write or WAL checkpoint.
+    conn.busy_timeout(std::time::Duration::from_secs(2))
+        .map_err(|e| format!("Failed to set busy timeout: {}", e))?;
+    Ok(conn)
 }
 
 /// List all Codex projects (grouped by cwd), excluding subagent threads.

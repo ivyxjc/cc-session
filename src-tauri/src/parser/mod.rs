@@ -202,7 +202,10 @@ pub fn load_latest_messages(path: &Path, count: usize) -> Result<LatestMessagesR
     let file = File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
     let reader = BufReader::new(file);
 
-    let mut all_raws: Vec<RawMessage> = Vec::new();
+    // Ring buffer of the last `count` raws — keeps memory bounded even for
+    // multi-hundred-MB session files instead of materializing every message.
+    let mut tail: std::collections::VecDeque<RawMessage> = std::collections::VecDeque::new();
+    let mut total_count = 0usize;
 
     for line in reader.lines() {
         let line = line.map_err(|e| format!("Read error: {}", e))?;
@@ -214,15 +217,18 @@ pub fn load_latest_messages(path: &Path, count: usize) -> Result<LatestMessagesR
             Err(_) => continue,
         };
         if matches!(raw.msg_type.as_str(), "user" | "assistant" | "system") {
-            all_raws.push(raw);
+            total_count += 1;
+            if count > 0 {
+                if tail.len() == count {
+                    tail.pop_front();
+                }
+                tail.push_back(raw);
+            }
         }
     }
 
-    let total_count = all_raws.len();
-    let skip = total_count.saturating_sub(count);
-    let messages = all_raws
+    let messages = tail
         .into_iter()
-        .skip(skip)
         .filter_map(|raw| ParsedMessage::from_raw(&raw))
         .collect();
 
