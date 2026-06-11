@@ -86,6 +86,9 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
   const [display, setDisplay] = useState<TerminalDisplay>(() => resolveDisplay(cwd));
   const [grid, setGrid] = useState<{ cols: number; rows: number } | null>(null);
   const [showDisplaySettings, setShowDisplaySettings] = useState(false);
+  // Fullscreen overlays the whole app window (more pixels → larger grid).
+  // The terminal stays mounted; the ResizeObserver refits and resizes the PTY.
+  const [fullscreen, setFullscreen] = useState(false);
   const displayPopoverRef = useRef<HTMLDivElement>(null);
   const overrideRef = useRef<TerminalDisplayOverride>(getDisplayOverride(cwd));
   const applyTimerRef = useRef<number | null>(null);
@@ -409,7 +412,11 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
   }, [status, sessions, attachTo]);
 
   return (
-    <div className="flex flex-col h-full bg-[#1e1e1e] border-t border-zinc-800">
+    <div
+      className={`flex flex-col bg-[#1e1e1e] border-t border-zinc-800 ${
+        fullscreen ? "fixed inset-0 z-40" : "h-full"
+      }`}
+    >
       <div className="flex items-center gap-2 px-3 py-1.5 bg-zinc-900 border-b border-zinc-800 text-xs text-zinc-300 shrink-0">
         <span className="font-medium">Terminal</span>
         {multiplexer && (
@@ -429,6 +436,13 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
           </span>
         )}
         <div className="flex-1" />
+        <button
+          onClick={() => setFullscreen((v) => !v)}
+          className="px-2 py-0.5 text-xs border border-zinc-700 rounded hover:bg-zinc-800"
+          title={fullscreen ? "Exit fullscreen" : "Fullscreen (cover the whole window for a larger grid)"}
+        >
+          {fullscreen ? "⤡" : "⤢"}
+        </button>
         <div className="relative" ref={displayPopoverRef}>
           <button
             onClick={() => setShowDisplaySettings((v) => !v)}
