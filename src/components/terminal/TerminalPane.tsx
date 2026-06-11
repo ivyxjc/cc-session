@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
+import { WebglAddon } from "@xterm/addon-webgl";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import "@xterm/xterm/css/xterm.css";
@@ -238,6 +239,17 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     term.loadAddon(fit);
     term.loadAddon(new WebLinksAddon());
     term.open(host);
+    // WebGL renderer: clamps every glyph to its exact grid cell (the DOM
+    // renderer lets CJK/Nerd-Font advance widths drift sub-pixel per row,
+    // bending zellij's pane borders) and draws box-drawing characters as
+    // full-cell vectors. Falls back to the DOM renderer when unavailable.
+    try {
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => webgl.dispose());
+      term.loadAddon(webgl);
+    } catch {
+      // WebGL context unavailable — DOM renderer fallback
+    }
     termRef.current = term;
     fitRef.current = fit;
 
