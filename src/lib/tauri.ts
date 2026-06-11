@@ -3,7 +3,7 @@ import type {
   Project, SessionSummary, ViewMessage, SubagentSummary,
   Tag, Backup, BackupConfig, TerminalConfig, ScanResult, LiveSession,
   LatestMessagesResult,
-  MultiplexerConfig, MultiplexerDetectionResult,
+  MultiplexerConfig, MultiplexerDetectionResult, ExternalClientSize,
   ContentSearchResult,
   AiSummaryConfig, AiSummaryResult,
 } from "./types";
@@ -127,6 +127,9 @@ export const detectMultiplexerSessions = (path: string, multiplexer: string) =>
 
 export const findSessionForPid = (pid: number, multiplexer: string) =>
   invoke<string | null>("find_session_for_pid", { pid, multiplexer });
+
+export const getExternalClientSize = (multiplexer: string, name: string) =>
+  invoke<ExternalClientSize | null>("get_external_client_size", { multiplexer, name });
 
 // Settings import/export (file-based — the string-based variants were unused and removed)
 export const exportSettingsToFile = (path: string) =>

@@ -509,6 +509,170 @@ fn read_pid_env(pid: u32) -> HashMap<String, String> {
     map
 }
 
+// --- External client size ---
+//
+// A multiplexer session is rendered at the per-dimension minimum of all
+// attached clients. To attach from cc-session without shrinking the session
+// for clients in real terminals (Ghostty etc.), the pane's grid must be ≥
+// that minimum. Each external client is a process (`zellij attach <name>`,
+// tmux client) whose controlling tty's winsize IS its terminal's grid.
+
+/// Per-dimension minimum grid across external clients of a session,
+/// excluding our own PTY client.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalClientSize {
+    pub cols: u16,
+    pub rows: u16,
+    pub clients: usize,
+}
+
+#[cfg(unix)]
+fn tty_winsize(tty: &str) -> Option<(u16, u16)> {
+    use std::os::unix::io::AsRawFd;
+    let file = std::fs::File::open(format!("/dev/{}", tty)).ok()?;
+    let mut ws: libc::winsize = unsafe { std::mem::zeroed() };
+    let ret = unsafe { libc::ioctl(file.as_raw_fd(), libc::TIOCGWINSZ, &mut ws) };
+    if ret == 0 && ws.ws_col > 0 && ws.ws_row > 0 {
+        Some((ws.ws_col, ws.ws_row))
+    } else {
+        None
+    }
+}
+
+#[cfg(not(unix))]
+fn tty_winsize(_tty: &str) -> Option<(u16, u16)> {
+    None
+}
+
+/// Controlling tty name (e.g. "ttys004") for a PID, via ps.
+fn pid_tty(pid: u32) -> Option<String> {
+    let out = run_cmd("ps", &["-o", "tty=", "-p", &pid.to_string()], 3)?;
+    let tty = out.trim();
+    if tty.is_empty() || tty == "??" {
+        None
+    } else {
+        Some(tty.to_string())
+    }
+}
+
+/// Scan `ps` for zellij client processes attached to `name` and return the
+/// per-dimension minimum of their tty grids.
+fn zellij_external_size(name: &str, exclude_pid: Option<u32>) -> Option<ExternalClientSize> {
+    let out = run_cmd("ps", &["-axo", "pid=,tty=,command="], 3)?;
+    let mut min_cols = u16::MAX;
+    let mut min_rows = u16::MAX;
+    let mut clients = 0usize;
+    for line in out.lines() {
+        let mut parts = line.split_whitespace();
+        let pid: u32 = match parts.next().and_then(|p| p.parse().ok()) {
+            Some(p) => p,
+            None => continue,
+        };
+        let tty = match parts.next() {
+            Some(t) if t != "??" => t.to_string(),
+            _ => continue,
+        };
+        let cmd_tokens: Vec<&str> = parts.collect();
+        // Client processes look like "zellij attach <name>" / "zellij -s <name>";
+        // the server has "--server" and no tty.
+        let is_zellij = cmd_tokens
+            .first()
+            .map(|c| Path::new(c).file_name().and_then(|n| n.to_str()) == Some("zellij"))
+            .unwrap_or(false);
+        if !is_zellij || cmd_tokens.iter().any(|t| *t == "--server") {
+            continue;
+        }
+        if !cmd_tokens.iter().any(|t| *t == name) {
+            continue;
+        }
+        if Some(pid) == exclude_pid {
+            continue;
+        }
+        if let Some((cols, rows)) = tty_winsize(&tty) {
+            min_cols = min_cols.min(cols);
+            min_rows = min_rows.min(rows);
+            clients += 1;
+        }
+    }
+    if clients == 0 {
+        return None;
+    }
+    Some(ExternalClientSize {
+        cols: min_cols,
+        rows: min_rows,
+        clients,
+    })
+}
+
+/// tmux exposes client sizes directly; exclude our own client by tty.
+fn tmux_external_size(name: &str, exclude_pid: Option<u32>) -> Option<ExternalClientSize> {
+    let bin = find_binary("tmux")?;
+    let own_tty = exclude_pid.and_then(pid_tty);
+    let out = run_cmd(
+        &bin,
+        &[
+            "list-clients",
+            "-t",
+            name,
+            "-F",
+            "#{client_tty}\t#{client_width}\t#{client_height}",
+        ],
+        3,
+    )?;
+    let mut min_cols = u16::MAX;
+    let mut min_rows = u16::MAX;
+    let mut clients = 0usize;
+    for line in out.lines() {
+        let mut parts = line.split('\t');
+        let tty = parts.next().unwrap_or("");
+        let cols: u16 = match parts.next().and_then(|v| v.parse().ok()) {
+            Some(v) => v,
+            None => continue,
+        };
+        let rows: u16 = match parts.next().and_then(|v| v.parse().ok()) {
+            Some(v) => v,
+            None => continue,
+        };
+        if let Some(own) = &own_tty {
+            if tty.ends_with(own.as_str()) {
+                continue;
+            }
+        }
+        if cols == 0 || rows == 0 {
+            continue;
+        }
+        min_cols = min_cols.min(cols);
+        min_rows = min_rows.min(rows);
+        clients += 1;
+    }
+    if clients == 0 {
+        return None;
+    }
+    Some(ExternalClientSize {
+        cols: min_cols,
+        rows: min_rows,
+        clients,
+    })
+}
+
+/// Effective grid the session is rendered at for its external clients
+/// (per-dimension minimum), or None when no external client is attached.
+#[tauri::command]
+pub fn get_external_client_size(
+    pty: State<'_, Arc<crate::pty::PtyState>>,
+    multiplexer: String,
+    name: String,
+) -> Result<Option<ExternalClientSize>, String> {
+    let exclude_pid = pty.child_pid();
+    let size = match multiplexer.as_str() {
+        "zellij" => zellij_external_size(&name, exclude_pid),
+        "tmux" => tmux_external_size(&name, exclude_pid),
+        _ => None,
+    };
+    Ok(size)
+}
+
 #[tauri::command]
 pub fn find_session_for_pid(
     pid: u32,

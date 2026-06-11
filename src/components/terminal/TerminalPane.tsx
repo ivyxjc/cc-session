@@ -8,6 +8,7 @@ import "@xterm/xterm/css/xterm.css";
 import {
   detectMultiplexerSessions,
   findSessionForPid,
+  getExternalClientSize,
   getMultiplexerConfig,
   ptyAttachMultiplexer,
   ptyCreateMultiplexer,
@@ -140,6 +141,64 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
     }
   }, [cwd]);
 
+  // --- Fit to external client ---
+  // A multiplexer session renders at the per-dimension minimum of all attached
+  // clients. After attaching (and on demand), measure the external clients'
+  // effective grid and pick the largest font size whose grid covers it, so
+  // attaching here never shrinks the session in the user's real terminal.
+  const attachedSessionRef = useRef<{ mp: string; name: string } | null>(null);
+  const suppressResizeRef = useRef(false);
+  const [fitNote, setFitNote] = useState<string | null>(null);
+
+  const fitToExternal = useCallback(async (mp: string, name: string) => {
+    const term = termRef.current;
+    const fit = fitRef.current;
+    if (!term || !fit) return;
+    const target = await getExternalClientSize(mp, name).catch(() => null);
+    if (!target) {
+      setFitNote("No external client attached — nothing to fit.");
+      return;
+    }
+    // Binary search the largest stepped font size whose grid ≥ target,
+    // probing with real fit() measurements. pty_resize is suppressed during
+    // probing so the shared session doesn't see the intermediate sizes.
+    suppressResizeRef.current = true;
+    let best = DISPLAY_FONT_SIZE_MIN;
+    try {
+      const sizeAt = (i: number) => DISPLAY_FONT_SIZE_MIN + i * DISPLAY_FONT_SIZE_STEP;
+      const probe = (size: number) => {
+        term.options.fontSize = size;
+        try { fit.fit(); } catch { /* host not sized */ }
+        return term.cols >= target.cols && term.rows >= target.rows;
+      };
+      if (probe(DISPLAY_FONT_SIZE_MIN)) {
+        let lo = 0;
+        let hi = Math.round((DISPLAY_FONT_SIZE_MAX - DISPLAY_FONT_SIZE_MIN) / DISPLAY_FONT_SIZE_STEP);
+        while (lo < hi) {
+          const mid = Math.ceil((lo + hi) / 2);
+          if (probe(sizeAt(mid))) lo = mid;
+          else hi = mid - 1;
+        }
+        best = sizeAt(lo);
+      }
+      term.options.fontSize = best;
+      try { fit.fit(); } catch { /* host not sized */ }
+    } finally {
+      suppressResizeRef.current = false;
+    }
+    setDisplay((d) => ({ ...d, fontSize: best }));
+    setGrid({ cols: term.cols, rows: term.rows });
+    invoke("pty_resize", { cols: term.cols, rows: term.rows }).catch(() => {});
+    const covered = term.cols >= target.cols && term.rows >= target.rows;
+    setFitNote(
+      covered
+        ? `Fit to external ${target.cols}×${target.rows} (${target.clients} client${target.clients > 1 ? "s" : ""})`
+        : `External is ${target.cols}×${target.rows} — can't cover it even at ${DISPLAY_FONT_SIZE_MIN}px. Try fullscreen.`,
+    );
+    // Deliberately not persisted: auto-fit tracks the moment; only manual
+    // slider changes write the per-cwd override.
+  }, []);
+
   // Close the display popover on outside click.
   useEffect(() => {
     if (!showDisplaySettings) return;
@@ -229,8 +288,10 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
           .then(() => {
             if (cancelled) return;
             attachedRef.current = true;
+            attachedSessionRef.current = { mp, name };
             setStatus("attached");
             lastSessionByCwd.set(cwd, { multiplexer: mp, name });
+            fitToExternal(mp, name);
           })
           .catch(() => {
             // Session disappeared — let the normal flow retry with detection results.
@@ -275,7 +336,7 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
 
     const onResizeDisposable = term.onResize(({ cols, rows }) => {
       setGrid({ cols, rows });
-      if (!attachedRef.current) return;
+      if (!attachedRef.current || suppressResizeRef.current) return;
       invoke("pty_resize", { cols, rows }).catch(() => {});
     });
 
@@ -367,13 +428,15 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
       const rows = term.rows;
       await ptyAttachMultiplexer(multiplexer, name, cwd, cols, rows);
       attachedRef.current = true;
+      attachedSessionRef.current = { mp: multiplexer, name };
       setStatus("attached");
       lastSessionByCwd.set(cwd, { multiplexer, name });
+      fitToExternal(multiplexer, name);
     } catch (e) {
       setStatus("error");
       setErrorMsg(String(e));
     }
-  }, [multiplexer, cwd]);
+  }, [multiplexer, cwd, fitToExternal]);
 
   const createNew = useCallback(async () => {
     if (!multiplexer || !termRef.current) return;
@@ -385,17 +448,20 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
       const rows = term.rows;
       await ptyCreateMultiplexer(multiplexer, name, cwd, cols, rows);
       attachedRef.current = true;
+      attachedSessionRef.current = { mp: multiplexer, name };
       setStatus("attached");
       lastSessionByCwd.set(cwd, { multiplexer, name });
+      fitToExternal(multiplexer, name);
     } catch (e) {
       setStatus("error");
       setErrorMsg(String(e));
     }
-  }, [multiplexer, cwd, createName]);
+  }, [multiplexer, cwd, createName, fitToExternal]);
 
   const detach = useCallback(async () => {
     try { await ptyDetach(); } catch {}
     attachedRef.current = false;
+    attachedSessionRef.current = null;
     setStatus("ready");
     refreshSessions();
   }, [refreshSessions]);
@@ -490,6 +556,20 @@ export function TerminalPane({ cwd, livePid, onClose }: Props) {
                 >
                   Reset to defaults
                 </button>
+              </div>
+              <div className="pt-1 border-t border-zinc-800 space-y-1">
+                <button
+                  disabled={status !== "attached"}
+                  onClick={() => {
+                    const a = attachedSessionRef.current;
+                    if (a) fitToExternal(a.mp, a.name);
+                  }}
+                  className="w-full px-2 py-1 text-[10px] border border-zinc-700 rounded hover:bg-zinc-800 text-zinc-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Detect the session's other clients (Ghostty etc.) and pick the largest font whose grid covers them"
+                >
+                  Fit to external client
+                </button>
+                {fitNote && <div className="text-[10px] text-zinc-500">{fitNote}</div>}
               </div>
             </div>
           )}

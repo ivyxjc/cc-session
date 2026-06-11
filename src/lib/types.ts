@@ -198,6 +198,13 @@ export interface MultiplexerDetectionResult {
   newSessionCmd: string;
 }
 
+/** Effective grid of a session's external clients (per-dimension minimum). */
+export interface ExternalClientSize {
+  cols: number;
+  rows: number;
+  clients: number;
+}
+
 export interface AiSummaryConfig {
   baseUrl: string;
   apiKey: string;

@@ -241,4 +241,11 @@ impl PtyState {
             s.kill();
         }
     }
+
+    /// PID of the spawned multiplexer client process, if a session is active.
+    /// Used to exclude our own client when measuring external client sizes.
+    pub fn child_pid(&self) -> Option<u32> {
+        let g = self.inner.lock();
+        g.as_ref().and_then(|s| s.child.lock().process_id())
+    }
 }

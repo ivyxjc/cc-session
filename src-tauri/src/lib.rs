@@ -73,6 +73,7 @@ pub fn run() {
             commands::multiplexer::set_multiplexer_config,
             commands::multiplexer::detect_multiplexer_sessions,
             commands::multiplexer::find_session_for_pid,
+            commands::multiplexer::get_external_client_size,
             commands::settings_io::export_settings_to_file,
             commands::settings_io::import_settings_from_file,
             commands::copy_session::copy_session_to_path,

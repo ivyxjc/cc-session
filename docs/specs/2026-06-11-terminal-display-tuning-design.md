@@ -71,6 +71,31 @@ the external terminal while a slider is being dragged.
 - Cleanup: pending debounce timer cleared on unmount; existing
   term-disposed try/catch guards reused.
 
+## Addendum (same day): fit to external client
+
+A session is rendered at the per-dimension minimum of its attached clients.
+Each external client (`zellij attach <name>` in Ghostty etc.) is a process
+whose controlling tty's winsize is its terminal's grid — so the effective
+external grid is measurable:
+
+- zellij: scan `ps -axo pid,tty,command` for client processes of the session
+  (token-match the session name; skip `--server` and tty-less rows; exclude
+  our own PTY child by pid), read each tty's size via `TIOCGWINSZ`.
+- tmux: `tmux list-clients -t <name> -F '#{client_tty} #{client_width}
+  #{client_height}'`, excluding our own client by tty.
+- Backend command `get_external_client_size(multiplexer, name)` returns the
+  per-dimension minimum, or null when no external client is attached.
+
+Frontend (`fitToExternal`): binary-search the largest stepped font size whose
+fitted grid covers the target, probing with real `fit()` measurements;
+`pty_resize` is suppressed during probing and sent once at the end. Runs
+automatically after every successful attach, and on demand via a
+"Fit to external client" button in the Aa popover. The result is deliberately
+not persisted to the per-cwd override — only manual slider changes are.
+
+Known limitation: zellij clients started as bare `zellij` (no session name in
+argv) are not matched by the ps scan.
+
 ## Verification
 
 - `pnpm exec tsc --noEmit` passes.
