@@ -12,11 +12,12 @@ import {
 import { setLocale as setGlobalLocale } from "../../lib/format";
 import {
   getUiFont, getCodeFont, getFontSize, setUiFont, setCodeFont, setFontSize,
-  getTerminalFont, getTerminalFontSize, getTerminalLineHeight,
-  setTerminalFont, setTerminalFontSize, setTerminalLineHeight,
-  TERMINAL_FONT_SIZE_DEFAULT, TERMINAL_LINE_HEIGHT_DEFAULT,
+  getTerminalFont, getTerminalFontSize, getTerminalLineHeight, getTerminalLetterSpacing,
+  setTerminalFont, setTerminalFontSize, setTerminalLineHeight, setTerminalLetterSpacing,
+  TERMINAL_FONT_SIZE_DEFAULT, TERMINAL_LINE_HEIGHT_DEFAULT, TERMINAL_LETTER_SPACING_DEFAULT,
   TERMINAL_FONT_SIZE_MIN, TERMINAL_FONT_SIZE_MAX,
   TERMINAL_LINE_HEIGHT_MIN, TERMINAL_LINE_HEIGHT_MAX,
+  TERMINAL_LETTER_SPACING_MIN, TERMINAL_LETTER_SPACING_MAX,
 } from "../../lib/fonts";
 import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig, AiSummaryConfig, AiSummaryProgress } from "../../lib/types";
 
@@ -44,6 +45,7 @@ export function SettingsPage() {
   const [terminalFont, setTerminalFontState] = useState(getTerminalFont());
   const [terminalFontSize, setTerminalFontSizeState] = useState<number>(getTerminalFontSize());
   const [terminalLineHeight, setTerminalLineHeightState] = useState<number>(getTerminalLineHeight());
+  const [terminalLetterSpacing, setTerminalLetterSpacingState] = useState<number>(getTerminalLetterSpacing());
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [migrating, setMigrating] = useState(false);
@@ -118,6 +120,7 @@ export function SettingsPage() {
     setTerminalFont(terminalFont);
     setTerminalFontSize(terminalFontSize === TERMINAL_FONT_SIZE_DEFAULT ? null : terminalFontSize);
     setTerminalLineHeight(terminalLineHeight === TERMINAL_LINE_HEIGHT_DEFAULT ? null : terminalLineHeight);
+    setTerminalLetterSpacing(terminalLetterSpacing === TERMINAL_LETTER_SPACING_DEFAULT ? null : terminalLetterSpacing);
 
     // Save locale
     if (locale) {
@@ -422,9 +425,10 @@ export function SettingsPage() {
             type="number"
             min={TERMINAL_FONT_SIZE_MIN}
             max={TERMINAL_FONT_SIZE_MAX}
+            step={0.5}
             value={terminalFontSize}
             onChange={(e) => {
-              const v = parseInt(e.target.value, 10);
+              const v = parseFloat(e.target.value);
               if (Number.isFinite(v)) {
                 setTerminalFontSizeState(Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, v)));
               }
@@ -457,6 +461,32 @@ export function SettingsPage() {
           </div>
           <p className="text-xs text-zinc-400 mt-1">
             xterm cell-height multiplier. Bump up if cells feel cramped, down to match another terminal's grid (zellij broadcasts the smallest client size to all).
+          </p>
+        </div>
+
+        <div>
+          <label className="text-sm font-medium">Terminal Letter Spacing (px)</label>
+          <div className="flex items-center gap-2 mt-1">
+            <input
+              type="number"
+              min={TERMINAL_LETTER_SPACING_MIN}
+              max={TERMINAL_LETTER_SPACING_MAX}
+              step={0.5}
+              value={terminalLetterSpacing}
+              onChange={(e) => {
+                const v = parseFloat(e.target.value);
+                if (Number.isFinite(v)) {
+                  setTerminalLetterSpacingState(Math.max(TERMINAL_LETTER_SPACING_MIN, Math.min(TERMINAL_LETTER_SPACING_MAX, v)));
+                }
+              }}
+              className="w-24 px-3 py-1.5 border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800 text-sm"
+            />
+            <span className="text-xs text-zinc-400">
+              Default {TERMINAL_LETTER_SPACING_DEFAULT} · range {TERMINAL_LETTER_SPACING_MIN}–{TERMINAL_LETTER_SPACING_MAX}
+            </span>
+          </div>
+          <p className="text-xs text-zinc-400 mt-1">
+            Extra pixels between cells. These three values are the defaults for the terminal pane's per-project "Aa" tuning; projects you've tuned keep their own values.
           </p>
         </div>
       </section>

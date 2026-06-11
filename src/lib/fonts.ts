@@ -4,6 +4,7 @@ const FONT_SIZE_KEY = "font-size";
 const TERMINAL_FONT_KEY = "terminal-font";
 const TERMINAL_FONT_SIZE_KEY = "terminal-font-size";
 const TERMINAL_LINE_HEIGHT_KEY = "terminal-line-height";
+const TERMINAL_LETTER_SPACING_KEY = "terminal-letter-spacing";
 
 /**
  * Default monospace stack. "Maple Mono NF CN" is first so users who installed it
@@ -18,6 +19,9 @@ export const TERMINAL_FONT_SIZE_MIN = 8;
 export const TERMINAL_FONT_SIZE_MAX = 32;
 export const TERMINAL_LINE_HEIGHT_MIN = 0.8;
 export const TERMINAL_LINE_HEIGHT_MAX = 1.8;
+export const TERMINAL_LETTER_SPACING_DEFAULT = 0;
+export const TERMINAL_LETTER_SPACING_MIN = 0;
+export const TERMINAL_LETTER_SPACING_MAX = 4;
 
 const TERMINAL_SETTINGS_EVENT = "cc-session:terminal-settings-changed";
 
@@ -48,7 +52,8 @@ export function getTerminalFontFamily(): string {
 }
 
 export function getTerminalFontSize(): number {
-  const raw = parseInt(localStorage.getItem(TERMINAL_FONT_SIZE_KEY) || "", 10);
+  // parseFloat: fractional default sizes are allowed (stepless tuning).
+  const raw = parseFloat(localStorage.getItem(TERMINAL_FONT_SIZE_KEY) || "");
   if (!Number.isFinite(raw)) return TERMINAL_FONT_SIZE_DEFAULT;
   return Math.max(TERMINAL_FONT_SIZE_MIN, Math.min(TERMINAL_FONT_SIZE_MAX, raw));
 }
@@ -57,6 +62,12 @@ export function getTerminalLineHeight(): number {
   const raw = parseFloat(localStorage.getItem(TERMINAL_LINE_HEIGHT_KEY) || "");
   if (!Number.isFinite(raw)) return TERMINAL_LINE_HEIGHT_DEFAULT;
   return Math.max(TERMINAL_LINE_HEIGHT_MIN, Math.min(TERMINAL_LINE_HEIGHT_MAX, raw));
+}
+
+export function getTerminalLetterSpacing(): number {
+  const raw = parseFloat(localStorage.getItem(TERMINAL_LETTER_SPACING_KEY) || "");
+  if (!Number.isFinite(raw)) return TERMINAL_LETTER_SPACING_DEFAULT;
+  return Math.max(TERMINAL_LETTER_SPACING_MIN, Math.min(TERMINAL_LETTER_SPACING_MAX, raw));
 }
 
 export function setUiFont(font: string) {
@@ -112,6 +123,15 @@ export function setTerminalLineHeight(lh: number | null) {
     localStorage.setItem(TERMINAL_LINE_HEIGHT_KEY, String(lh));
   } else {
     localStorage.removeItem(TERMINAL_LINE_HEIGHT_KEY);
+  }
+  notifyTerminalSettingsChanged();
+}
+
+export function setTerminalLetterSpacing(ls: number | null) {
+  if (ls != null && Number.isFinite(ls)) {
+    localStorage.setItem(TERMINAL_LETTER_SPACING_KEY, String(ls));
+  } else {
+    localStorage.removeItem(TERMINAL_LETTER_SPACING_KEY);
   }
   notifyTerminalSettingsChanged();
 }

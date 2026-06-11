@@ -4,7 +4,7 @@
 // in larger external terminals. Only fields the user actually adjusted are
 // stored; untouched fields keep following the global Settings values.
 
-import { getTerminalFontSize, getTerminalLineHeight } from "./fonts";
+import { getTerminalFontSize, getTerminalLetterSpacing, getTerminalLineHeight } from "./fonts";
 
 export interface TerminalDisplayOverride {
   fontSize?: number;
@@ -67,13 +67,12 @@ export function clearDisplayOverride(cwd: string) {
   localStorage.removeItem(KEY_PREFIX + cwd);
 }
 
-/** Override merged over the global terminal settings. Letter spacing has no
- *  global setting; it defaults to 0. */
+/** Override merged over the global terminal settings from Settings. */
 export function resolveDisplay(cwd: string): TerminalDisplay {
   const o = getDisplayOverride(cwd);
   return {
     fontSize: o.fontSize ?? getTerminalFontSize(),
     lineHeight: o.lineHeight ?? getTerminalLineHeight(),
-    letterSpacing: o.letterSpacing ?? 0,
+    letterSpacing: o.letterSpacing ?? getTerminalLetterSpacing(),
   };
 }
