@@ -2,6 +2,7 @@ use crate::db::Database;
 use crate::db::models::ScanResult;
 use crate::parser;
 use crate::search;
+use crate::sources::Provider;
 use rusqlite::params;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -138,12 +139,12 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
 
         // Upsert project
         conn.execute(
-            "INSERT INTO projects (encoded_path, original_path, display_name, created_at)
-             VALUES (?1, ?2, ?3, ?4)
+            "INSERT INTO projects (provider, encoded_path, original_path, display_name, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
              ON CONFLICT(encoded_path) DO UPDATE SET
                 original_path = excluded.original_path,
                 display_name = excluded.display_name",
-            params![encoded_path, original_path, display_name, chrono::Utc::now().timestamp_millis()],
+            params![Provider::Claude, encoded_path, original_path, display_name, chrono::Utc::now().timestamp_millis()],
         ).map_err(|e| format!("DB error: {}", e))?;
 
         let project_id: i64 = conn.query_row(
@@ -239,8 +240,8 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                         total_cache_creation_tokens, total_cache_read_tokens,
                         file_size, file_mtime,
                         summary, summary_source, summary_at,
-                        created_at)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+                        created_at, provider)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
                      ON CONFLICT(session_id) DO UPDATE SET
                         slug = excluded.slug,
                         version = excluded.version,
@@ -277,6 +278,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                         parse_result.summary.as_ref().map(|_| "heuristic"),
                         parse_result.summary.as_ref().map(|_| now_ms),
                         now_ms,
+                        Provider::Claude,
                     ],
                 ).map_err(|e| format!("DB error: {}", e))?;
 
@@ -341,7 +343,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                     params![jsonl_path_str],
                     |row| row.get::<_, i64>(0),
                 ) {
-                    if search::index_session_content(&conn, session_db_id, &jsonl_path).is_ok() {
+                    if search::index_session_content(&conn, session_db_id, Provider::Claude, &jsonl_path).is_ok() {
                         let _ = conn.execute(
                             "UPDATE sessions SET content_indexed_at = ?1 WHERE id = ?2",
                             params![file_mtime, session_db_id],
@@ -361,7 +363,13 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
         ).map_err(|e| format!("DB error: {}", e))?;
     }
 
-    // Remove sessions whose files no longer exist
+    // Codex threads land in the same tables; a missing Codex install is not an error.
+    let codex = crate::codex::scanner::scan(&conn, &mut seen_paths)?;
+    projects_found += codex.projects_found;
+    sessions_found += codex.sessions_found;
+    sessions_updated += codex.sessions_updated;
+
+    // Remove sessions (of any provider) whose files no longer exist
     let mut stmt = conn.prepare("SELECT id, jsonl_path FROM sessions")
         .map_err(|e| format!("DB error: {}", e))?;
     let orphans: Vec<i64> = stmt.query_map([], |row| {

@@ -5,18 +5,18 @@ import { formatRelativeTime } from "../../lib/format";
 import { useAppStore } from "../../stores/appStore";
 
 export function ProjectList() {
-  const { selectProject, selectProjectGroup } = useAppStore();
+  const { provider, selectProject, selectProjectGroup } = useAppStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     setLoading(true);
-    const data = await listProjects("time");
+    const data = await listProjects("time", provider);
     setProjects(data);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, [provider]);
 
   const handleRefresh = async () => {
     await refreshIndex();

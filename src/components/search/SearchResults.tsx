@@ -67,6 +67,7 @@ function groupBySession(results: ContentSearchResult[]): ContentGroup[] {
 }
 
 export function SearchResults() {
+  const provider = useAppStore((s) => s.provider);
   const searchQuery = useAppStore((s) => s.searchQuery);
   const selectSession = useAppStore((s) => s.selectSession);
   const contentSearchQuery = useAppStore((s) => s.contentSearchQuery);
@@ -99,8 +100,8 @@ export function SearchResults() {
     const q = searchQuery.trim().toLowerCase();
 
     Promise.all([
-      listProjects("time"),
-      listSessions({ sortBy: "time" }),
+      listProjects("time", provider),
+      listSessions({ provider, sortBy: "time" }),
     ]).then(([allProjects, allSessions]) => {
       const matchedProjects = allProjects.filter(
         (p) => fuzzyMatch(p.displayName, q) || fuzzyMatch(p.originalPath, q)
@@ -117,7 +118,7 @@ export function SearchResults() {
       setSessions(matchedSessions);
       setLoading(false);
     });
-  }, [searchQuery]);
+  }, [provider, searchQuery]);
 
   const runContentSearch = async () => {
     const q = searchQuery.trim();

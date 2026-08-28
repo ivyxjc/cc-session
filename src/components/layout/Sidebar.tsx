@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { useAppStore } from "../../stores/appStore";
 import { useFilterStore } from "../../stores/filterStore";
 import { useLiveStore } from "../../stores/liveStore";
-import { listProjects, listTags, getLiveSessions, toggleStarProject, refreshIndex, codexListProjects } from "../../lib/tauri";
-import type { Project, Tag, CodexProject } from "../../lib/types";
+import { listProjects, listTags, getLiveSessions, toggleStarProject, refreshIndex } from "../../lib/tauri";
+import type { Project, Tag } from "../../lib/types";
 import { Tooltip } from "../common/Tooltip";
 
 function longestCommonPrefix(paths: string[]): string {
@@ -31,20 +31,19 @@ export function Sidebar() {
   const { selectedTagId, setSelectedTagId } = useFilterStore();
   const liveSessions = useLiveStore((s) => s.liveSessions);
   const setLiveSessions = useLiveStore((s) => s.setLiveSessions);
-  const selectCodexProject = useAppStore((s) => s.selectCodexProject);
-  const selectedCodexCwd = useAppStore((s) => s.selectedCodexCwd);
   const [projects, setProjects] = useState<Project[]>([]);
-  const [codexProjects, setCodexProjects] = useState<CodexProject[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [expandedGroups, setExpandedGroups] = useState<Set<string>>(new Set());
   const [refreshing, setRefreshing] = useState(false);
   const triggerRefresh = useAppStore((s) => s.triggerRefresh);
 
   useEffect(() => {
-    listProjects("time").then(setProjects).catch(console.error);
+    listProjects("time", provider).then(setProjects).catch(console.error);
+  }, [provider]);
+
+  useEffect(() => {
     listTags().then(setTags).catch(console.error);
     getLiveSessions().then(setLiveSessions).catch(console.error);
-    codexListProjects("time").then(setCodexProjects).catch(console.error);
 
     // Refresh live session count every 10s for the badge
     const interval = setInterval(() => {
@@ -97,7 +96,7 @@ export function Sidebar() {
     for (const p of group.projects) {
       await toggleStarProject(p.id);
     }
-    listProjects("time").then(setProjects).catch(console.error);
+    listProjects("time", provider).then(setProjects).catch(console.error);
   };
 
   const handleProjectGroupClick = (group: ProjectGroup) => {
@@ -113,7 +112,7 @@ export function Sidebar() {
 
   return (
     <aside className="h-full bg-zinc-50 dark:bg-zinc-900 flex flex-col overflow-hidden">
-      {/* Provider Switcher */}
+      {/* Provider Switcher — a filter over one shared index */}
       <div className="p-3 pb-2">
         <div className="flex rounded-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden">
           <button
@@ -139,22 +138,21 @@ export function Sidebar() {
         </div>
       </div>
 
-      {/* Search (Claude only) */}
-      {provider === "claude" && (
-        <div className="px-3 pb-0">
-          <input
-            type="text"
-            placeholder="Search sessions..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full px-3 py-1.5 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm placeholder-zinc-400 focus:outline-none focus:border-zinc-500"
-          />
-        </div>
-      )}
+      {/* Search */}
+      <div className="px-3 pb-0">
+        <input
+          type="text"
+          placeholder="Search sessions..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="w-full px-3 py-1.5 rounded border border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-800 text-sm placeholder-zinc-400 focus:outline-none focus:border-zinc-500"
+        />
+      </div>
 
       {/* Navigation */}
-      {provider === "claude" ? (
-        <nav className="p-3 space-y-1">
+      <nav className="p-3 space-y-1">
+        {/* Live tracking follows Claude Code's process registry only. */}
+        {provider === "claude" && (
           <button
             onClick={() => { setView("live"); setSearchQuery(""); }}
             className={`w-full text-left px-3 py-1.5 rounded text-sm flex items-center justify-between ${view === "live" || view === "liveConversation" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
@@ -167,72 +165,29 @@ export function Sidebar() {
               </span>
             )}
           </button>
-          <button
-            onClick={() => { setView("projects"); selectProject(null); setSearchQuery(""); }}
-            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "projects" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-          >
-            All Projects
-          </button>
-          <button
-            onClick={() => { setView("sessions"); selectProject(null); setSearchQuery(""); }}
-            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "sessions" && !selectedProjectId ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-          >
-            All Sessions
-          </button>
-          <button
-            onClick={() => { setView("favorites"); selectProject(null); setSearchQuery(""); }}
-            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "favorites" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-          >
-            Favorites
-          </button>
-        </nav>
-      ) : (
-        <nav className="p-3 space-y-1">
-          <button
-            onClick={() => { setView("codexProjects"); }}
-            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "codexProjects" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-          >
-            All Projects
-          </button>
-          <button
-            onClick={() => { useAppStore.setState({ selectedCodexCwd: null }); setView("codexSessions"); }}
-            className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "codexSessions" && !selectedCodexCwd ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-          >
-            All Sessions
-          </button>
-        </nav>
-      )}
+        )}
+        <button
+          onClick={() => { setView("projects"); selectProject(null); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "projects" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          All Projects
+        </button>
+        <button
+          onClick={() => { setView("sessions"); selectProject(null); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "sessions" && !selectedProjectId ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          All Sessions
+        </button>
+        <button
+          onClick={() => { setView("favorites"); selectProject(null); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "favorites" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          Favorites
+        </button>
+      </nav>
 
-      {/* Codex projects in sidebar */}
-      {provider === "codex" && (
-        <>
-          <div className="px-3 pt-2">
-            <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Projects</h3>
-          </div>
-          <div className="flex-1 overflow-y-auto px-3 pb-2">
-            <div className="space-y-0.5">
-              {codexProjects.map((p) => (
-                <button
-                  key={p.cwd}
-                  onClick={() => selectCodexProject(p.cwd)}
-                  className={`w-full text-left px-3 py-1 rounded text-sm flex items-center gap-1 ${
-                    selectedCodexCwd === p.cwd
-                      ? "bg-zinc-200 dark:bg-zinc-800"
-                      : "hover:bg-zinc-100 dark:hover:bg-zinc-800"
-                  }`}
-                  title={p.cwd}
-                >
-                  <span className="truncate flex-1">{p.displayName}</span>
-                  <span className="text-zinc-400 text-xs shrink-0">{p.sessionCount}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        </>
-      )}
-
-      {/* Tags (Claude only) */}
-      {provider === "claude" && tags.length > 0 && (
+      {/* Tags */}
+      {tags.length > 0 && (
         <div className="px-3 py-2">
           <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Tags</h3>
           <div className="space-y-0.5">
@@ -256,13 +211,11 @@ export function Sidebar() {
         </div>
       )}
 
-      {/* Projects list (Claude only) */}
-      {provider === "claude" && (
-        <div className="px-3 pt-2">
-          <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Projects</h3>
-        </div>
-      )}
-      {provider === "claude" && <div className="flex-1 overflow-y-auto px-3 pb-2">
+      {/* Projects list */}
+      <div className="px-3 pt-2">
+        <h3 className="text-xs font-medium text-zinc-500 uppercase tracking-wide mb-1">Projects</h3>
+      </div>
+      <div className="flex-1 overflow-y-auto px-3 pb-2">
         <div className="space-y-0.5">
           {projectGroups.map((group) => {
             const isMulti = group.projects.length > 1;
@@ -330,57 +283,51 @@ export function Sidebar() {
             );
           })}
         </div>
-      </div>}
+      </div>
 
       {/* Bottom */}
       <div className="p-3 border-t border-zinc-200 dark:border-zinc-800 space-y-1">
-        {provider === "claude" && (
-          <>
-            <button
-              onClick={() => { setView("dayPlanner"); setSearchQuery(""); }}
-              className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "dayPlanner" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-            >
-              Daily Activity
-            </button>
-            <button
-              onClick={() => { setView("usage"); setSearchQuery(""); }}
-              className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "usage" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-            >
-              Usage
-            </button>
-            <button
-              onClick={() => { setView("backups"); setSearchQuery(""); }}
-              className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "backups" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
-            >
-              Backups
-            </button>
-          </>
-        )}
+        <button
+          onClick={() => { setView("dayPlanner"); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "dayPlanner" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          Daily Activity
+        </button>
+        <button
+          onClick={() => { setView("usage"); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "usage" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          Usage
+        </button>
+        <button
+          onClick={() => { setView("backups"); setSearchQuery(""); }}
+          className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "backups" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
+        >
+          Backups
+        </button>
         <button
           onClick={() => { setView("settings"); setSearchQuery(""); }}
           className={`w-full text-left px-3 py-1.5 rounded text-sm ${view === "settings" ? "bg-zinc-200 dark:bg-zinc-800" : "hover:bg-zinc-100 dark:hover:bg-zinc-800"}`}
         >
           Settings
         </button>
-        {provider === "claude" && (
-          <button
-            onClick={async () => {
-              setRefreshing(true);
-              try {
-                await refreshIndex();
-                listProjects("time").then(setProjects).catch(console.error);
-                triggerRefresh();
-              } catch (e) {
-                console.error(e);
-              }
-              setRefreshing(false);
-            }}
-            disabled={refreshing}
-            className="w-full text-left px-3 py-1.5 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
-          >
-            {refreshing ? "Refreshing..." : "Refresh Index"}
-          </button>
-        )}
+        <button
+          onClick={async () => {
+            setRefreshing(true);
+            try {
+              await refreshIndex();
+              listProjects("time", provider).then(setProjects).catch(console.error);
+              triggerRefresh();
+            } catch (e) {
+              console.error(e);
+            }
+            setRefreshing(false);
+          }}
+          disabled={refreshing}
+          className="w-full text-left px-3 py-1.5 rounded text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+        >
+          {refreshing ? "Refreshing..." : "Refresh Index"}
+        </button>
       </div>
     </aside>
   );

@@ -1,10 +1,10 @@
 import { create } from "zustand";
-import type { ContentSearchResult } from "../lib/types";
+import type { ContentSearchResult, Provider } from "../lib/types";
 
-type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation" | "usage" | "dayPlanner" | "codexProjects" | "codexSessions" | "codexConversation";
-type Provider = "claude" | "codex";
+type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation" | "usage" | "dayPlanner";
 
 interface AppState {
+  /** Active provider filter — every list view scopes to it. */
   provider: Provider;
   view: View;
   selectedProjectId: number | null;
@@ -18,16 +18,11 @@ interface AppState {
   contentSearchQuery: string;        // the query these results correspond to
   contentSearchResults: ContentSearchResult[];
   contentSearchError: string | null;
-  // Codex
-  selectedCodexCwd: string | null;
-  selectedCodexThreadId: string | null;
   setProvider: (provider: Provider) => void;
   setView: (view: View) => void;
   selectProject: (id: number | null) => void;
   selectSession: (id: number | null) => void;
   selectProjectGroup: (displayName: string) => void;
-  selectCodexProject: (cwd: string) => void;
-  selectCodexSession: (threadId: string | null) => void;
   setSearchQuery: (query: string) => void;
   setContentSearch: (query: string, results: ContentSearchResult[], error: string | null) => void;
   triggerRefresh: () => void;
@@ -45,9 +40,14 @@ export const useAppStore = create<AppState>((set) => ({
   contentSearchQuery: "",
   contentSearchResults: [],
   contentSearchError: null,
-  selectedCodexCwd: null,
-  selectedCodexThreadId: null,
-  setProvider: (provider) => set({ provider, view: provider === "codex" ? "codexProjects" : "projects", searchQuery: "" }),
+  setProvider: (provider) => set({
+    provider,
+    view: "projects",
+    selectedProjectId: null,
+    selectedSessionId: null,
+    selectedProjectGroup: null,
+    searchQuery: "",
+  }),
   setView: (view) => set({ view }),
   selectProject: (id) => set((s) => ({ selectedProjectId: id, selectedSessionId: null, ...(id !== null ? { view: "sessions" as View } : s.view === "sessions" || s.view === "conversation" ? { view: "sessions" as View } : {}) })),
   selectSession: (id) => set((s) => {
@@ -67,21 +67,6 @@ export const useAppStore = create<AppState>((set) => ({
     };
   }),
   selectProjectGroup: (displayName) => set({ selectedProjectGroup: displayName, selectedProjectId: null, selectedSessionId: null, view: "projectGroup" }),
-  selectCodexProject: (cwd) => set({ selectedCodexCwd: cwd, selectedCodexThreadId: null, view: "codexSessions" }),
-  selectCodexSession: (threadId) => set((s) => {
-    if (threadId === null) {
-      return {
-        selectedCodexThreadId: null,
-        view: s.conversationFromView || "codexSessions",
-        conversationFromView: null,
-      };
-    }
-    return {
-      selectedCodexThreadId: threadId,
-      view: "codexConversation" as View,
-      conversationFromView: s.view === "codexConversation" ? s.conversationFromView : s.view,
-    };
-  }),
   setSearchQuery: (query) => set((s) => {
     const trimmed = query.trim();
     // Invalidate cached content search if the query no longer matches

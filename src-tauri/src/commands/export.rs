@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::scanner::encode_path;
+use crate::sources::Provider;
 use rusqlite::params;
 use std::fs::File;
 use std::io::{Read, Write};
@@ -9,10 +10,14 @@ use tauri::State;
 use zip::write::{FileOptions, SimpleFileOptions};
 use zip::ZipWriter;
 
-/// Export a Claude session to a zip file.
-/// `project_path` is the target project path (e.g., "/Users/bob/myproject") — it gets
-/// encoded into the Claude format and used as the directory inside the zip.
-/// Unzipping into `~/.claude/projects/` on the target machine restores the session.
+/// Export a session (plus its subagent files) to a zip.
+///
+/// Claude: `project_path` is the target project path (e.g. "/Users/bob/myproject") —
+/// it gets encoded into the Claude format and used as the directory inside the zip,
+/// so unzipping into `~/.claude/projects/` on the target machine restores the session.
+///
+/// Codex: rollouts live under date-based paths, so entries keep their path relative
+/// to `~` and unzip straight into the home directory. `project_path` is ignored.
 #[tauri::command]
 pub fn export_session(
     db: State<'_, Arc<Database>>,
@@ -22,11 +27,10 @@ pub fn export_session(
 ) -> Result<(), String> {
     let conn = db.conn();
 
-    // Get main session JSONL path
-    let jsonl_path: String = conn.query_row(
-        "SELECT jsonl_path FROM sessions WHERE id = ?1",
+    let (provider, jsonl_path): (Provider, String) = conn.query_row(
+        "SELECT provider, jsonl_path FROM sessions WHERE id = ?1",
         params![session_id],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     ).map_err(|e| format!("Session not found: {}", e))?;
 
     // Get subagent JSONL paths
@@ -41,8 +45,6 @@ pub fn export_session(
     .filter_map(|r| r.ok())
     .collect();
 
-    let encoded_dir = encode_path(&project_path);
-
     // Create zip
     let zip_file = File::create(&target_path)
         .map_err(|e| format!("Failed to create zip file: {}", e))?;
@@ -50,6 +52,16 @@ pub fn export_session(
     let options: SimpleFileOptions = FileOptions::default()
         .compression_method(zip::CompressionMethod::Deflated);
 
+    if provider != Provider::Claude {
+        add_file_to_zip(&mut zip, &jsonl_path, &relative_to_home(&jsonl_path), options)?;
+        for sa_path in &subagent_paths {
+            add_file_to_zip(&mut zip, sa_path, &relative_to_home(sa_path), options)?;
+        }
+        zip.finish().map_err(|e| format!("Failed to finalize zip: {}", e))?;
+        return Ok(());
+    }
+
+    let encoded_dir = encode_path(&project_path);
     let mut seen_entries = std::collections::HashSet::new();
 
     // Add main session JSONL: {encoded_dir}/{filename}
@@ -80,40 +92,6 @@ pub fn export_session(
         }
         seen_entries.insert(zip_entry.clone());
         add_file_to_zip(&mut zip, sa_path, &zip_entry, options)?;
-    }
-
-    zip.finish().map_err(|e| format!("Failed to finalize zip: {}", e))?;
-    Ok(())
-}
-
-/// Export a Codex session to a zip file.
-/// Codex sessions use date-based paths, so we preserve the relative path from ~/.codex/.
-#[tauri::command]
-pub fn export_codex_session(
-    thread_id: String,
-    target_path: String,
-) -> Result<(), String> {
-    let rollout_path = crate::codex::db::get_thread_rollout_path(&thread_id)?;
-
-    let subagents = crate::codex::db::get_subagents(&thread_id)?;
-    let mut subagent_rollout_paths: Vec<String> = Vec::new();
-    for sa in &subagents {
-        if let Ok(sa_path) = crate::codex::db::get_thread_rollout_path(&sa.id) {
-            subagent_rollout_paths.push(sa_path);
-        }
-    }
-
-    let zip_file = File::create(&target_path)
-        .map_err(|e| format!("Failed to create zip file: {}", e))?;
-    let mut zip = ZipWriter::new(zip_file);
-    let options: SimpleFileOptions = FileOptions::default()
-        .compression_method(zip::CompressionMethod::Deflated);
-
-    // Use path relative to ~ for Codex
-    add_file_to_zip(&mut zip, &rollout_path, &relative_to_home(&rollout_path), options)?;
-
-    for sa_path in &subagent_rollout_paths {
-        add_file_to_zip(&mut zip, sa_path, &relative_to_home(sa_path), options)?;
     }
 
     zip.finish().map_err(|e| format!("Failed to finalize zip: {}", e))?;

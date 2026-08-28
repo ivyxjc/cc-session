@@ -85,3 +85,48 @@ pub fn to_view_message(item: CodexResponseItem) -> ViewMessage {
         }
     }
 }
+
+/// Project a whole Codex rollout into Claude-shaped raw JSONL objects so that
+/// consumers written against Claude's line format (LLM input builder, FTS
+/// indexer) work unchanged. Injected environment/instruction payloads are
+/// dropped — they are not user prompts.
+pub fn to_claude_raw(path: &std::path::Path) -> Result<Vec<serde_json::Value>, String> {
+    use serde_json::json;
+    use super::parser::is_injected_user_text;
+    let items = super::parser::load_messages(path, 0, usize::MAX)?;
+    let mut out = Vec::with_capacity(items.len());
+    for item in items {
+        let value = match item {
+            CodexResponseItem::UserMessage { timestamp, texts } => {
+                let texts: Vec<String> = texts.into_iter().filter(|t| !is_injected_user_text(t)).collect();
+                if texts.is_empty() {
+                    continue;
+                }
+                json!({"type": "user", "timestamp": timestamp,
+                       "message": {"content": [{"type": "text", "text": texts.join("\n")}]}})
+            }
+            CodexResponseItem::AssistantMessage { timestamp, texts } => json!({
+                "type": "assistant", "timestamp": timestamp,
+                "message": {"content": [{"type": "text", "text": texts.join("\n")}]}
+            }),
+            CodexResponseItem::Reasoning { timestamp, summary, .. } => {
+                if summary.is_empty() {
+                    continue;
+                }
+                json!({"type": "assistant", "timestamp": timestamp,
+                       "message": {"content": [{"type": "thinking", "thinking": summary.join("\n")}]}})
+            }
+            CodexResponseItem::FunctionCall { timestamp, call_id, name, .. } => json!({
+                "type": "assistant", "timestamp": timestamp,
+                "message": {"content": [{"type": "tool_use", "id": call_id, "name": name}]}
+            }),
+            CodexResponseItem::FunctionCallOutput { timestamp, call_id, .. } => json!({
+                "type": "user", "timestamp": timestamp,
+                "message": {"content": [{"type": "tool_result", "tool_use_id": call_id}]}
+            }),
+            CodexResponseItem::DeveloperMessage { .. } => continue,
+        };
+        out.push(value);
+    }
+    Ok(out)
+}

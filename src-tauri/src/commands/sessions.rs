@@ -1,8 +1,8 @@
 use crate::db::Database;
 use crate::db::models::{SessionSummary, Tag, SubagentSummary};
-use crate::parser;
-use crate::claude::converter::to_view_message;
 use crate::models::ViewMessage;
+use crate::parser::ViewLatestMessagesResult;
+use crate::sources::{self, Provider};
 use rusqlite::params;
 use std::path::Path;
 use std::sync::Arc;
@@ -11,6 +11,7 @@ use tauri::State;
 #[tauri::command]
 pub fn list_sessions(
     db: State<'_, Arc<Database>>,
+    provider: Option<Provider>,
     project_id: Option<i64>,
     tag_id: Option<i64>,
     favorited: Option<bool>,
@@ -22,6 +23,10 @@ pub fn list_sessions(
     let mut conditions: Vec<String> = Vec::new();
     let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
 
+    if let Some(p) = provider {
+        conditions.push(format!("s.provider = ?{}", param_values.len() + 1));
+        param_values.push(Box::new(p));
+    }
     if let Some(pid) = project_id {
         conditions.push(format!("s.project_id = ?{}", param_values.len() + 1));
         param_values.push(Box::new(pid));
@@ -76,7 +81,8 @@ pub fn list_sessions(
                 s.total_cache_creation_tokens, s.total_cache_read_tokens,
                 s.file_size, s.is_favorited, s.is_hidden, s.is_backed_up,
                 s.copied_from_session_id, s.copied_at,
-                s.summary, s.summary_source, s.summary_at, s.ai_tags
+                s.summary, s.summary_source, s.summary_at, s.ai_tags,
+                s.provider
          FROM sessions s
          JOIN projects p ON s.project_id = p.id
          LEFT JOIN session_tags st ON s.id = st.session_id
@@ -93,6 +99,7 @@ pub fn list_sessions(
         i64, i64, i64, i64, i64, i64, i64, i64, bool, bool, bool,
         Option<String>, Option<i64>,
         Option<String>, Option<String>, Option<i64>, Option<String>,
+        Provider,
     );
     let session_rows: Vec<Row> = stmt.query_map(
         params_ref.as_slice(),
@@ -105,6 +112,7 @@ pub fn list_sessions(
                 row.get(16)?, row.get(17)?, row.get(18)?, row.get(19)?,
                 row.get(20)?, row.get(21)?, row.get(22)?, row.get(23)?,
                 row.get(24)?, row.get(25)?, row.get(26)?, row.get(27)?,
+                row.get(28)?,
             ))
         },
     )
@@ -121,6 +129,7 @@ pub fn list_sessions(
             .unwrap_or_default();
         sessions.push(SessionSummary {
             id: row.0,
+            provider: row.28,
             session_id: row.1,
             project_id: row.2,
             project_name: row.3,
@@ -176,6 +185,15 @@ fn get_session_tags(conn: &rusqlite::Connection, session_id: i64) -> Result<Vec<
     Ok(tags)
 }
 
+/// Provider + file path of a session, the two things needed to read its messages.
+fn session_source(conn: &rusqlite::Connection, session_id: i64) -> Result<(Provider, String), String> {
+    conn.query_row(
+        "SELECT provider, jsonl_path FROM sessions WHERE id = ?1",
+        params![session_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    ).map_err(|e| format!("Session not found: {}", e))
+}
+
 #[tauri::command]
 pub fn get_messages(
     db: State<'_, Arc<Database>>,
@@ -183,19 +201,8 @@ pub fn get_messages(
     offset: Option<usize>,
     limit: Option<usize>,
 ) -> Result<Vec<ViewMessage>, String> {
-    let conn = db.conn();
-    let jsonl_path: String = conn.query_row(
-        "SELECT jsonl_path FROM sessions WHERE id = ?1",
-        params![session_id],
-        |row| row.get(0),
-    ).map_err(|e| format!("Session not found: {}", e))?;
-
-    let messages = parser::load_messages(
-        Path::new(&jsonl_path),
-        offset.unwrap_or(0),
-        limit.unwrap_or(50),
-    )?;
-    Ok(messages.into_iter().map(to_view_message).collect())
+    let (provider, jsonl_path) = session_source(&db.conn(), session_id)?;
+    sources::load_messages(provider, Path::new(&jsonl_path), offset.unwrap_or(0), limit.unwrap_or(50))
 }
 
 #[tauri::command]
@@ -203,22 +210,9 @@ pub fn get_latest_messages(
     db: State<'_, Arc<Database>>,
     session_id: i64,
     count: Option<usize>,
-) -> Result<parser::ViewLatestMessagesResult, String> {
-    let conn = db.conn();
-    let jsonl_path: String = conn.query_row(
-        "SELECT jsonl_path FROM sessions WHERE id = ?1",
-        params![session_id],
-        |row| row.get(0),
-    ).map_err(|e| format!("Session not found: {}", e))?;
-
-    let result = parser::load_latest_messages(
-        Path::new(&jsonl_path),
-        count.unwrap_or(50),
-    )?;
-    Ok(parser::ViewLatestMessagesResult {
-        messages: result.messages.into_iter().map(to_view_message).collect(),
-        total_count: result.total_count,
-    })
+) -> Result<ViewLatestMessagesResult, String> {
+    let (provider, jsonl_path) = session_source(&db.conn(), session_id)?;
+    sources::load_latest_messages(provider, Path::new(&jsonl_path), count.unwrap_or(50))
 }
 
 #[tauri::command]
@@ -256,16 +250,14 @@ pub fn get_subagent_messages(
     limit: Option<usize>,
 ) -> Result<Vec<ViewMessage>, String> {
     let conn = db.conn();
-    let jsonl_path: String = conn.query_row(
-        "SELECT jsonl_path FROM subagents WHERE id = ?1",
+    // Subagents share their parent session's provider.
+    let (provider, jsonl_path): (Provider, String) = conn.query_row(
+        "SELECT s.provider, a.jsonl_path FROM subagents a
+         JOIN sessions s ON a.session_id = s.id
+         WHERE a.id = ?1",
         params![subagent_id],
-        |row| row.get(0),
+        |row| Ok((row.get(0)?, row.get(1)?)),
     ).map_err(|e| format!("Subagent not found: {}", e))?;
 
-    let messages = parser::load_messages(
-        Path::new(&jsonl_path),
-        offset.unwrap_or(0),
-        limit.unwrap_or(50),
-    )?;
-    Ok(messages.into_iter().map(to_view_message).collect())
+    sources::load_messages(provider, Path::new(&jsonl_path), offset.unwrap_or(0), limit.unwrap_or(50))
 }

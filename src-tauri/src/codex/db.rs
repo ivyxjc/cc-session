@@ -1,256 +1,78 @@
-use rusqlite::{Connection, OpenFlags, params};
-use serde::{Deserialize, Serialize};
+//! Read-only access to Codex's own metadata store (`~/.codex/state_5.sqlite`).
+//! Only the scanner talks to it; everything else reads the app index.
+
+use rusqlite::{Connection, OpenFlags};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// A Codex "project" — threads grouped by cwd.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexProject {
-    pub cwd: String,
-    pub display_name: String,
-    pub session_count: i64,
-    pub last_active: i64,
-    pub total_tokens: i64,
-}
-
-/// A Codex session summary for the frontend.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexSession {
+/// One row of Codex's `threads` table, limited to what the index needs.
+#[derive(Debug, Clone)]
+pub struct ThreadRow {
     pub id: String,
-    pub title: String,
+    pub rollout_path: String,
     pub cwd: String,
-    pub model: Option<String>,
-    pub tokens_used: i64,
+    pub title: String,
     pub git_branch: Option<String>,
     pub cli_version: String,
     pub approval_mode: String,
-    pub source: String,
     pub archived: bool,
-    pub created_at: i64,
-    pub updated_at: i64,
-    pub first_user_message: String,
-    pub subagent_count: i64,
-}
-
-/// A Codex subagent (child thread spawned from a parent).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct CodexSubagent {
-    pub id: String,
-    pub nickname: Option<String>,
-    pub role: Option<String>,
-    pub title: String,
-    pub tokens_used: i64,
+    pub created_at_ms: i64,
+    pub updated_at_ms: i64,
+    pub agent_nickname: Option<String>,
+    pub agent_role: Option<String>,
 }
 
 fn codex_db_path() -> Option<PathBuf> {
-    let home = dirs::home_dir()?;
-    let path = home.join(".codex").join("state_5.sqlite");
-    if path.exists() {
-        Some(path)
-    } else {
-        None
-    }
+    let path = dirs::home_dir()?.join(".codex").join("state_5.sqlite");
+    path.exists().then_some(path)
 }
 
-fn open_codex_db() -> Result<Connection, String> {
-    let path = codex_db_path()
-        .ok_or_else(|| "Codex database not found at ~/.codex/state_5.sqlite".to_string())?;
+/// `None` when Codex is not installed / has no state DB.
+pub fn open_codex_db() -> Result<Option<Connection>, String> {
+    let Some(path) = codex_db_path() else { return Ok(None) };
     let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("Failed to open Codex DB: {}", e))?;
     // Codex writes to this DB live; without a busy timeout reads fail hard
     // with SQLITE_BUSY whenever they collide with a write or WAL checkpoint.
     conn.busy_timeout(std::time::Duration::from_secs(2))
         .map_err(|e| format!("Failed to set busy timeout: {}", e))?;
-    Ok(conn)
+    Ok(Some(conn))
 }
 
-/// List all Codex projects (grouped by cwd), excluding subagent threads.
-pub fn list_projects(sort_by: Option<&str>) -> Result<Vec<CodexProject>, String> {
-    let conn = open_codex_db()?;
-
+/// All interactive threads (CLI / VS Code / exec), including spawned subagents.
+pub fn list_threads(conn: &Connection) -> Result<Vec<ThreadRow>, String> {
     let mut stmt = conn.prepare(
-        "SELECT cwd, COUNT(*) as cnt, MAX(updated_at) as last_active, SUM(tokens_used) as total_tokens
-         FROM threads
-         WHERE source IN ('cli', 'vscode', 'exec')
-         GROUP BY cwd
-         ORDER BY last_active DESC"
+        "SELECT id, rollout_path, cwd, title, git_branch, cli_version, approval_mode, archived,
+                COALESCE(created_at_ms, created_at * 1000), COALESCE(updated_at_ms, updated_at * 1000),
+                agent_nickname, agent_role
+         FROM threads WHERE source IN ('cli', 'vscode', 'exec')"
     ).map_err(|e| format!("Query error: {}", e))?;
-
-    let mut projects: Vec<CodexProject> = stmt.query_map([], |row| {
-        let cwd: String = row.get(0)?;
-        let display_name = cwd.rsplit('/').next().unwrap_or(&cwd).to_string();
-        Ok(CodexProject {
-            cwd,
-            display_name,
-            session_count: row.get(1)?,
-            last_active: row.get(2)?,
-            total_tokens: row.get::<_, Option<i64>>(3)?.unwrap_or(0),
-        })
-    })
-    .map_err(|e| format!("Query error: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
-
-    match sort_by {
-        Some("name") => projects.sort_by(|a, b| a.display_name.cmp(&b.display_name)),
-        Some("sessions") => projects.sort_by(|a, b| b.session_count.cmp(&a.session_count)),
-        Some("tokens") => projects.sort_by(|a, b| b.total_tokens.cmp(&a.total_tokens)),
-        _ => {} // already sorted by last_active DESC
-    }
-
-    Ok(projects)
+    let rows = stmt.query_map([], |row| Ok(ThreadRow {
+        id: row.get(0)?,
+        rollout_path: row.get(1)?,
+        cwd: row.get(2)?,
+        title: row.get(3)?,
+        git_branch: row.get(4)?,
+        cli_version: row.get(5)?,
+        approval_mode: row.get(6)?,
+        archived: row.get(7)?,
+        created_at_ms: row.get(8)?,
+        updated_at_ms: row.get(9)?,
+        agent_nickname: row.get(10)?,
+        agent_role: row.get(11)?,
+    })).map_err(|e| format!("Query error: {}", e))?;
+    Ok(rows.filter_map(|r| r.ok()).collect())
 }
 
-/// List Codex sessions, optionally filtered by cwd.
-pub fn list_sessions(
-    cwd: Option<&str>,
-    sort_by: Option<&str>,
-    show_archived: Option<bool>,
-) -> Result<Vec<CodexSession>, String> {
-    let conn = open_codex_db()?;
-
-    // Count subagents per parent thread
-    let mut subagent_counts: HashMap<String, i64> = HashMap::new();
-    {
-        let mut stmt = conn.prepare(
-            "SELECT parent_thread_id, COUNT(*) FROM thread_spawn_edges GROUP BY parent_thread_id"
-        ).map_err(|e| format!("Query error: {}", e))?;
-        let rows = stmt.query_map([], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
-        }).map_err(|e| format!("Query error: {}", e))?;
-        for r in rows.flatten() {
-            subagent_counts.insert(r.0, r.1);
-        }
+/// parent thread id → child thread ids.
+pub fn spawn_edges(conn: &Connection) -> Result<HashMap<String, Vec<String>>, String> {
+    let mut stmt = conn.prepare("SELECT parent_thread_id, child_thread_id FROM thread_spawn_edges")
+        .map_err(|e| format!("Query error: {}", e))?;
+    let rows = stmt.query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+        .map_err(|e| format!("Query error: {}", e))?;
+    let mut map: HashMap<String, Vec<String>> = HashMap::new();
+    for (parent, child) in rows.flatten() {
+        map.entry(parent).or_default().push(child);
     }
-
-    let mut conditions = vec!["source IN ('cli', 'vscode', 'exec')".to_string()];
-    let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
-
-    if let Some(c) = cwd {
-        conditions.push(format!("cwd = ?{}", param_values.len() + 1));
-        param_values.push(Box::new(c.to_string()));
-    }
-    if !show_archived.unwrap_or(false) {
-        conditions.push("archived = 0".to_string());
-    }
-
-    let where_clause = format!("WHERE {}", conditions.join(" AND "));
-    let order = match sort_by {
-        Some("tokens") => "tokens_used DESC",
-        Some("name") => "title ASC",
-        _ => "updated_at DESC",
-    };
-
-    let query = format!(
-        "SELECT id, rollout_path, cwd, title, model, model_provider, tokens_used,
-                git_branch, cli_version, approval_mode, source, archived,
-                created_at, updated_at, first_user_message
-         FROM threads {} ORDER BY {}",
-        where_clause, order
-    );
-
-    let params_ref: Vec<&dyn rusqlite::types::ToSql> = param_values.iter().map(|p| p.as_ref()).collect();
-    let mut stmt = conn.prepare(&query).map_err(|e| format!("Query error: {}", e))?;
-
-    let sessions: Vec<CodexSession> = stmt.query_map(params_ref.as_slice(), |row| {
-        let id: String = row.get(0)?;
-        let subagent_count = subagent_counts.get(&id).copied().unwrap_or(0);
-        Ok(CodexSession {
-            id,
-            title: row.get(3)?,
-            cwd: row.get(2)?,
-            model: row.get(4)?,
-            tokens_used: row.get(6)?,
-            git_branch: row.get(7)?,
-            cli_version: row.get(8)?,
-            approval_mode: row.get(9)?,
-            source: row.get(10)?,
-            archived: row.get(11)?,
-            created_at: row.get(12)?,
-            updated_at: row.get(13)?,
-            first_user_message: row.get(14)?,
-            subagent_count,
-        })
-    })
-    .map_err(|e| format!("Query error: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
-
-    Ok(sessions)
-}
-
-/// Get a single Codex session by thread ID.
-pub fn get_session(thread_id: &str) -> Result<CodexSession, String> {
-    let conn = open_codex_db()?;
-
-    let subagent_count: i64 = conn.query_row(
-        "SELECT COUNT(*) FROM thread_spawn_edges WHERE parent_thread_id = ?1",
-        params![thread_id],
-        |row| row.get(0),
-    ).unwrap_or(0);
-
-    conn.query_row(
-        "SELECT id, rollout_path, cwd, title, model, model_provider, tokens_used,
-                git_branch, cli_version, approval_mode, source, archived,
-                created_at, updated_at, first_user_message
-         FROM threads WHERE id = ?1",
-        params![thread_id],
-        |row| {
-            Ok(CodexSession {
-                id: row.get(0)?,
-                title: row.get(3)?,
-                cwd: row.get(2)?,
-                model: row.get(4)?,
-                tokens_used: row.get(6)?,
-                git_branch: row.get(7)?,
-                cli_version: row.get(8)?,
-                approval_mode: row.get(9)?,
-                source: row.get(10)?,
-                archived: row.get(11)?,
-                created_at: row.get(12)?,
-                updated_at: row.get(13)?,
-                first_user_message: row.get(14)?,
-                subagent_count,
-            })
-        },
-    ).map_err(|e| format!("Thread not found: {}", e))
-}
-
-/// Get the rollout_path (JSONL file path) for a thread.
-pub fn get_thread_rollout_path(thread_id: &str) -> Result<String, String> {
-    let conn = open_codex_db()?;
-    conn.query_row(
-        "SELECT rollout_path FROM threads WHERE id = ?1",
-        params![thread_id],
-        |row| row.get(0),
-    ).map_err(|e| format!("Thread not found: {}", e))
-}
-
-/// List subagents (child threads) for a parent thread.
-pub fn get_subagents(parent_thread_id: &str) -> Result<Vec<CodexSubagent>, String> {
-    let conn = open_codex_db()?;
-    let mut stmt = conn.prepare(
-        "SELECT t.id, t.agent_nickname, t.agent_role, t.title, t.tokens_used
-         FROM thread_spawn_edges e
-         JOIN threads t ON e.child_thread_id = t.id
-         WHERE e.parent_thread_id = ?1"
-    ).map_err(|e| format!("Query error: {}", e))?;
-
-    let subagents = stmt.query_map(params![parent_thread_id], |row| {
-        Ok(CodexSubagent {
-            id: row.get(0)?,
-            nickname: row.get(1)?,
-            role: row.get(2)?,
-            title: row.get(3)?,
-            tokens_used: row.get(4)?,
-        })
-    })
-    .map_err(|e| format!("Query error: {}", e))?
-    .filter_map(|r| r.ok())
-    .collect();
-
-    Ok(subagents)
+    Ok(map)
 }

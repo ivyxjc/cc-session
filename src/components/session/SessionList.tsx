@@ -6,7 +6,7 @@ import { useFilterStore } from "../../stores/filterStore";
 import { SessionCard } from "./SessionCard";
 
 export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
-  const { selectedProjectId, refreshCounter } = useAppStore();
+  const { provider, selectedProjectId, refreshCounter } = useAppStore();
   const { sortBy, selectedTagId } = useFilterStore();
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,6 +15,7 @@ export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
   useEffect(() => {
     setLoading(true);
     listSessions({
+      provider,
       projectId: selectedProjectId ?? undefined,
       tagId: selectedTagId ?? undefined,
       favorited: favoritesOnly || undefined,
@@ -24,7 +25,7 @@ export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
       .then(setSessions)
       .catch(console.error)
       .finally(() => setLoading(false));
-  }, [selectedProjectId, selectedTagId, favoritesOnly, sortBy, refreshCounter, showHidden]);
+  }, [provider, selectedProjectId, selectedTagId, favoritesOnly, sortBy, refreshCounter, showHidden]);
 
   const title = favoritesOnly ? "Favorites" : "Sessions";
 
@@ -32,6 +33,7 @@ export function SessionList({ favoritesOnly }: { favoritesOnly?: boolean }) {
 
   const reload = () => {
     listSessions({
+      provider,
       projectId: selectedProjectId ?? undefined,
       tagId: selectedTagId ?? undefined,
       favorited: favoritesOnly || undefined,

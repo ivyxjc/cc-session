@@ -1,5 +1,9 @@
+/** Which agent CLI a project/session came from. Mirrors `sources::Provider` in Rust. */
+export type Provider = "claude" | "codex";
+
 export interface Project {
   id: number;
+  provider: Provider;
   encodedPath: string;
   originalPath: string;
   displayName: string;
@@ -10,6 +14,7 @@ export interface Project {
 
 export interface SessionSummary {
   id: number;
+  provider: Provider;
   sessionId: string;
   projectId: number;
   projectName: string;
@@ -287,37 +292,3 @@ export type ViewMessage =
   | { type: "user"; id: string; parentId: string | null; timestamp: string | null; content: ViewContentBlock[] }
   | { type: "assistant"; id: string; parentId: string | null; timestamp: string | null; model: string | null; content: ViewContentBlock[]; usage: ViewUsage | null; stopReason: string | null }
   | { type: "system"; id: string | null; timestamp: string | null; subtype: string | null; content: string | null };
-
-// Codex types
-export interface CodexProject {
-  cwd: string;
-  displayName: string;
-  sessionCount: number;
-  lastActive: number;
-  totalTokens: number;
-}
-
-export interface CodexSession {
-  id: string;
-  title: string;
-  cwd: string;
-  model: string | null;
-  tokensUsed: number;
-  gitBranch: string | null;
-  cliVersion: string;
-  approvalMode: string;
-  source: string;
-  archived: boolean;
-  createdAt: number;
-  updatedAt: number;
-  firstUserMessage: string;
-  subagentCount: number;
-}
-
-export interface CodexSubagent {
-  id: string;
-  nickname: string | null;
-  role: string | null;
-  title: string;
-  tokensUsed: number;
-}

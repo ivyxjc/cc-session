@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::scanner;
+use crate::sources::Provider;
 use rusqlite::params;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -20,16 +21,19 @@ pub fn copy_session_to_path(
     let conn = db.conn();
 
     // 1. Look up source session (and its project's original_path for cwd rewriting)
-    let (source_uuid, source_jsonl, source_cwd): (String, String, String) = conn
+    let (provider, source_uuid, source_jsonl, source_cwd): (Provider, String, String, String) = conn
         .query_row(
-            "SELECT s.session_id, s.jsonl_path, p.original_path
+            "SELECT s.provider, s.session_id, s.jsonl_path, p.original_path
              FROM sessions s
              JOIN projects p ON s.project_id = p.id
              WHERE s.id = ?1",
             params![session_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
         .map_err(|e| format!("Session not found: {}", e))?;
+    if provider != Provider::Claude {
+        return Err("Copy to path rewrites Claude Code session files; not supported for this provider".to_string());
+    }
 
     let source_path = PathBuf::from(&source_jsonl);
     if !source_path.exists() {

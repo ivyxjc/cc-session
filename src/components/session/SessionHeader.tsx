@@ -10,6 +10,7 @@ import { OpenTerminalButton } from "../common/OpenTerminalButton";
 import { MultiplexerButton } from "../common/MultiplexerButton";
 import { TagBadge } from "../common/TagBadge";
 import { TagManager } from "../common/TagManager";
+import { ProviderBadge } from "../common/ProviderBadge";
 import { useAppStore } from "../../stores/appStore";
 
 export function SessionHeader({ session, onRefresh }: { session: SessionSummary; onRefresh?: () => void }) {
@@ -21,6 +22,24 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
   const [generatingAi, setGeneratingAi] = useState(false);
   const [showExportDialog, setShowExportDialog] = useState(false);
   const [exportProjectPath, setExportProjectPath] = useState("");
+  const isClaude = session.provider === "claude";
+
+  const runExport = async (projectPath: string) => {
+    const slug = session.slug || session.sessionId.slice(0, 8);
+    const filePath = await saveDialog({
+      defaultPath: `${projectPath || session.projectPath}/${slug}.zip`,
+      filters: [{ name: "ZIP", extensions: ["zip"] }],
+    });
+    if (!filePath) return;
+    setExporting(true);
+    try {
+      await exportSession(session.id, projectPath, filePath as string);
+      toast.success("Export successful!");
+    } catch (e2) {
+      toast.error(`Export failed: ${e2}`);
+    }
+    setExporting(false);
+  };
 
   const handleBackup = async () => {
     setBackingUp(true);
@@ -75,28 +94,36 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
         >
           {backingUp ? "Backing up..." : "Backup"}
         </button>
-        <button
-          onClick={async () => {
-            const dir = await open({ directory: true, multiple: false, title: "Select target project directory" });
-            if (dir) {
-              setCopying(true);
-              try {
-                const newUuid = await copySessionToPath(session.id, dir as string);
-                alert(`Session copied. New ID: ${newUuid.slice(0, 8)}`);
-                onRefresh?.();
-              } catch (e) {
-                alert(`Copy failed: ${e}`);
+        {/* Copy rewrites Claude Code project files — Claude only. */}
+        {isClaude && (
+          <button
+            onClick={async () => {
+              const dir = await open({ directory: true, multiple: false, title: "Select target project directory" });
+              if (dir) {
+                setCopying(true);
+                try {
+                  const newUuid = await copySessionToPath(session.id, dir as string);
+                  alert(`Session copied. New ID: ${newUuid.slice(0, 8)}`);
+                  onRefresh?.();
+                } catch (e) {
+                  alert(`Copy failed: ${e}`);
+                }
+                setCopying(false);
               }
-              setCopying(false);
-            }
-          }}
-          disabled={copying}
-          className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
-        >
-          {copying ? "Copying..." : "Copy to path"}
-        </button>
+            }}
+            disabled={copying}
+            className="text-sm px-2 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {copying ? "Copying..." : "Copy to path"}
+          </button>
+        )}
         <button
           onClick={() => {
+            // Only Claude exports need a target project path (it becomes the zip's encoded dir).
+            if (!isClaude) {
+              runExport("");
+              return;
+            }
             setExportProjectPath(session.projectPath || "");
             setShowExportDialog(true);
           }}
@@ -133,7 +160,10 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
       >
         {session.summary || session.projectName}
       </h1>
-      <CopyText text={session.sessionId} className="text-sm text-zinc-400 font-mono" />
+      <div className="flex items-center gap-2">
+        <CopyText text={session.sessionId} className="text-sm text-zinc-400 font-mono" />
+        <ProviderBadge provider={session.provider} />
+      </div>
       <div className="text-sm text-zinc-500 mt-0.5">
         {session.projectName} &middot; {session.gitBranch || "\u2014"} &middot; {session.version || "\u2014"} &middot; {session.permissionMode || "default"}
       </div>
@@ -170,25 +200,11 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
               type="text"
               value={exportProjectPath}
               onChange={(e) => setExportProjectPath(e.target.value)}
-              onKeyDown={async (e) => {
+              onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
                   setShowExportDialog(false);
-                  const slug = session.slug || session.sessionId.slice(0, 8);
-                  const filePath = await saveDialog({
-                    defaultPath: `${exportProjectPath}/${slug}.zip`,
-                    filters: [{ name: "ZIP", extensions: ["zip"] }],
-                  });
-                  if (filePath) {
-                    setExporting(true);
-                    try {
-                      await exportSession(session.id, exportProjectPath, filePath as string);
-                      toast.success("Export successful!");
-                    } catch (e2) {
-                      toast.error(`Export failed: ${e2}`);
-                    }
-                    setExporting(false);
-                  }
+                  runExport(exportProjectPath);
                 }
               }}
               autoFocus
@@ -202,23 +218,9 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
                 Cancel
               </button>
               <button
-                onClick={async () => {
+                onClick={() => {
                   setShowExportDialog(false);
-                  const slug = session.slug || session.sessionId.slice(0, 8);
-                  const filePath = await saveDialog({
-                    defaultPath: `${exportProjectPath}/${slug}.zip`,
-                    filters: [{ name: "ZIP", extensions: ["zip"] }],
-                  });
-                  if (filePath) {
-                    setExporting(true);
-                    try {
-                      await exportSession(session.id, exportProjectPath, filePath as string);
-                      toast.success("Export successful!");
-                    } catch (e2) {
-                      toast.error(`Export failed: ${e2}`);
-                    }
-                    setExporting(false);
-                  }
+                  runExport(exportProjectPath);
                 }}
                 className="text-sm px-3 py-1 rounded bg-zinc-800 dark:bg-zinc-200 text-white dark:text-zinc-900 hover:bg-zinc-700 dark:hover:bg-zinc-300"
               >

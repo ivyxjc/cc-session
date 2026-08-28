@@ -26,6 +26,7 @@ impl Database {
         conn.execute_batch("
             CREATE TABLE IF NOT EXISTS projects (
                 id            INTEGER PRIMARY KEY,
+                provider      TEXT NOT NULL DEFAULT 'claude',
                 encoded_path  TEXT UNIQUE,
                 original_path TEXT,
                 display_name  TEXT,
@@ -37,6 +38,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS sessions (
                 id                  INTEGER PRIMARY KEY,
+                provider            TEXT NOT NULL DEFAULT 'claude',
                 session_id          TEXT UNIQUE,
                 project_id          INTEGER REFERENCES projects(id),
                 jsonl_path          TEXT,
@@ -168,6 +170,9 @@ impl Database {
             [],
         );
         let _ = conn.execute("ALTER TABLE daily_session_summaries ADD COLUMN refs TEXT", []);
+        let _ = conn.execute("ALTER TABLE projects ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'", []);
+        let _ = conn.execute("ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'", []);
+        let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider, last_active DESC)", []);
 
         Ok(())
     }

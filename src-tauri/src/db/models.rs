@@ -1,9 +1,11 @@
+use crate::sources::Provider;
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Project {
     pub id: i64,
+    pub provider: Provider,
     pub encoded_path: String,
     pub original_path: String,
     pub display_name: String,
@@ -16,6 +18,7 @@ pub struct Project {
 #[serde(rename_all = "camelCase")]
 pub struct SessionSummary {
     pub id: i64,
+    pub provider: Provider,
     pub session_id: String,
     pub project_id: i64,
     pub project_name: String,

@@ -3,6 +3,7 @@
 use crate::db::Database;
 use crate::llm::client::{parse_json_payload, LlmClient, LlmConfig, LlmError};
 use crate::llm::input_builder;
+use crate::sources::Provider;
 use rusqlite::params;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -115,18 +116,18 @@ pub async fn generate_for_session(
     let cfg = load_config(&db).map_err(GenError::Db)?.ok_or(GenError::NotConfigured)?;
 
     // Look up jsonl path + last_active + summary_at + cached hash.
-    type SessionInfoRow = (String, Option<i64>, Option<i64>, Option<String>);
+    type SessionInfoRow = (Provider, String, Option<i64>, Option<i64>, Option<String>);
     let session_info: Option<SessionInfoRow> = {
         let conn = db.conn();
         conn.query_row(
-            "SELECT jsonl_path, last_active, summary_at, summary_input_hash
+            "SELECT provider, jsonl_path, last_active, summary_at, summary_input_hash
              FROM sessions WHERE id = ?1",
             params![session_db_id],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
         )
         .ok()
     };
-    let (jsonl_path, last_active, summary_at, prev_hash) =
+    let (provider, jsonl_path, last_active, summary_at, prev_hash) =
         session_info.ok_or(GenError::SessionNotFound)?;
 
     // Layer 1: timestamp pre-filter — skip if session unchanged since last summary.
@@ -140,7 +141,7 @@ pub async fn generate_for_session(
 
     // Build LLM input slice (sync work).
     let path = PathBuf::from(&jsonl_path);
-    let input = input_builder::build_for_window(&path, None).map_err(GenError::Build)?;
+    let input = input_builder::build_for_window(provider, &path, None).map_err(GenError::Build)?;
     let rendered = input.render();
     let new_hash = format!("{}:{:x}", SCHEMA_VERSION, Sha256::digest(rendered.as_bytes()));
 

@@ -413,7 +413,7 @@ fn extract_tag_content(s: &str, tag: &str) -> Option<String> {
 
 /// Truncate a string to at most `max_chars` characters, preferring a sentence
 /// boundary (。！？.!?\n) within the last 30 chars before the cap.
-fn truncate_at_boundary(s: &str, max_chars: usize) -> String {
+pub fn truncate_at_boundary(s: &str, max_chars: usize) -> String {
     let chars: Vec<char> = s.chars().collect();
     if chars.len() <= max_chars {
         return chars.into_iter().collect();
