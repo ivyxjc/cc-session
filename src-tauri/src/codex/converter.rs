@@ -67,7 +67,7 @@ pub fn to_view_message(item: CodexResponseItem) -> ViewMessage {
                 }],
             }
         }
-        CodexResponseItem::Reasoning { timestamp, summary } => {
+        CodexResponseItem::Reasoning { timestamp, summary, reasoning_tokens, tokens_shared } => {
             let thinking_text = summary.join("\n");
             ViewMessage::Assistant {
                 id: String::new(),
@@ -76,6 +76,8 @@ pub fn to_view_message(item: CodexResponseItem) -> ViewMessage {
                 model: None,
                 content: vec![ViewContentBlock::Thinking {
                     thinking: thinking_text,
+                    reasoning_tokens,
+                    tokens_shared,
                 }],
                 usage: None,
                 stop_reason: None,

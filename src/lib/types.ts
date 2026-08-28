@@ -140,6 +140,8 @@ export interface DayPlannerBlock {
   dailySummary: string | null;
   /** Day-specific tags. */
   dailyTags: string[];
+  /** Day-specific Jira/PR references; url present only when seen in the session. */
+  dailyRefs: { label: string; url: string | null }[];
   /** Absolute timestamps in UTC ms. Render labels with `new Date(...)` for OS-local HH:MM. */
   startMs: number;
   endMs: number;
@@ -153,6 +155,9 @@ export interface DailySessionSummary {
   tags: string[];
   startMs: number;
   endMs: number;
+  /** Sum of gap-split block durations — actual engaged time, not span. */
+  activeMs: number;
+  refs: { label: string; url: string | null }[];
 }
 
 export interface DailySessionError {
@@ -253,6 +258,8 @@ export interface ViewContentBlock {
   text?: string;
   // thinking
   thinking?: string;
+  reasoningTokens?: number;
+  tokensShared?: boolean;
   // toolCall
   id?: string;
   name?: string;

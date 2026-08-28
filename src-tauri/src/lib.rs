@@ -1,5 +1,6 @@
 mod db;
 mod parser;
+mod activity;
 mod scanner;
 mod commands;
 mod backup;

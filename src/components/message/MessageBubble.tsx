@@ -113,11 +113,21 @@ function renderContentBlock(
       if (!text.trim()) {
         return (
           <div key={index} className="text-xs text-zinc-400 italic px-2 py-1">
-            (redacted thinking)
+            (redacted thinking
+            {block.reasoningTokens !== undefined &&
+              `, ${block.reasoningTokens} tokens${block.tokensShared ? "/turn" : ""}`}
+            )
           </div>
         );
       }
-      return <ThinkingBlock key={index} thinking={text} />;
+      return (
+        <ThinkingBlock
+          key={index}
+          thinking={text}
+          reasoningTokens={block.reasoningTokens}
+          tokensShared={block.tokensShared}
+        />
+      );
     }
 
     case "image": {

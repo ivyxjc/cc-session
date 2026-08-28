@@ -8,6 +8,13 @@ pub enum ViewContentBlock {
     },
     Thinking {
         thinking: String,
+        /// Reasoning tokens reported for the turn this block belongs to.
+        /// Codex only — Claude does not break thinking out of `output_tokens`.
+        #[serde(rename = "reasoningTokens", skip_serializing_if = "Option::is_none")]
+        reasoning_tokens: Option<i64>,
+        /// True when several thinking blocks in the same turn share `reasoning_tokens`.
+        #[serde(rename = "tokensShared", default)]
+        tokens_shared: bool,
     },
     ToolCall {
         id: String,

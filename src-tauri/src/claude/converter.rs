@@ -61,7 +61,11 @@ pub fn to_view_message(msg: ParsedMessage) -> ViewMessage {
 pub fn to_view_content_block(block: ContentBlock) -> ViewContentBlock {
     match block {
         ContentBlock::Text { text } => ViewContentBlock::Text { text },
-        ContentBlock::Thinking { thinking, .. } => ViewContentBlock::Thinking { thinking },
+        ContentBlock::Thinking { thinking, .. } => ViewContentBlock::Thinking {
+            thinking,
+            reasoning_tokens: None,
+            tokens_shared: false,
+        },
         ContentBlock::ToolUse { id, name, input } => ViewContentBlock::ToolCall { id, name, input },
         ContentBlock::ToolResult { tool_use_id, content, is_error } => {
             ViewContentBlock::ToolResult {

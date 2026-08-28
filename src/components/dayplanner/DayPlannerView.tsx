@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { generateDailySummary, getDayPlanner } from "../../lib/tauri";
@@ -66,7 +67,10 @@ function blocksToMarkdown(date: string, blocks: DayPlannerBlock[]): string {
     const title = b.dailySummary || b.title;
     const tags = b.dailyTags.length > 0 ? b.dailyTags : b.aiTags;
     const tagPart = tags.length > 0 ? " " + tags.map((t) => `#${t}`).join(" ") : "";
-    lines.push(`- [ ] ${formatHHMM(b.startMs)} - ${formatHHMM(b.endMs)} [${b.projectName}] ${title}${tagPart}`);
+    const refPart = b.dailyRefs.length > 0
+      ? " " + b.dailyRefs.map((r) => (r.url ? `[${r.label}](${r.url})` : r.label)).join(" ")
+      : "";
+    lines.push(`- [ ] ${formatHHMM(b.startMs)} - ${formatHHMM(b.endMs)} [${b.projectName}] ${title}${refPart}${tagPart}`);
   }
   return lines.join("\n") + "\n";
 }
@@ -325,6 +329,29 @@ export function DayPlannerView() {
                     >
                       {label}
                     </span>
+                    {b.dailyRefs.length > 0 && (
+                      <span className="flex gap-1.5 shrink-0">
+                        {b.dailyRefs.slice(0, 4).map((r, i) =>
+                          r.url ? (
+                            <a
+                              key={`${r.label}-${i}`}
+                              href={r.url}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                void openUrl(r.url!);
+                              }}
+                              className="text-[10px] text-blue-600 dark:text-blue-400 underline whitespace-nowrap"
+                            >
+                              {r.label}
+                            </a>
+                          ) : (
+                            <span key={`${r.label}-${i}`} className="text-[10px] text-zinc-500 whitespace-nowrap">
+                              {r.label}
+                            </span>
+                          ),
+                        )}
+                      </span>
+                    )}
                     {fragCount > 1 && activeMs != null && (
                       <span
                         className="text-[10px] text-zinc-400 whitespace-nowrap"

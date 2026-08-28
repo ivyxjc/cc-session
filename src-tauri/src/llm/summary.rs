@@ -27,10 +27,26 @@ Rules:
 - tags: 2-4 short, lowercase English topical labels. Use hyphens for multi-word tags (e.g. \"search\", \"rust\", \"ui-fix\", \"db-schema\"). No spaces.
 - If the session is too short or unclear, still produce a best-guess summary; never refuse.";
 
+/// A Jira ticket / PR reference the model extracted from the conversation.
+/// `url` is only set when a link was actually visible in the input.
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct RefLink {
+    pub label: String,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct SummaryAndTags {
     pub summary: String,
     pub tags: Vec<String>,
+    /// Daily map step only: model marks slices with no actual work (/clear,
+    /// bare greetings). Whole-session summaries never set this.
+    #[serde(default)]
+    pub noise: bool,
+    /// Daily map step only: Jira/PR references central to the day's work.
+    #[serde(default)]
+    pub refs: Vec<RefLink>,
 }
 
 #[derive(Debug)]

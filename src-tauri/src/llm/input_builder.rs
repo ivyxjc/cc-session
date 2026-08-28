@@ -12,11 +12,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-const ANCHOR_MAX: usize = 1000;
-const PER_USER_MAX: usize = 800;
-const PER_ASSISTANT_TEXT_MAX: usize = 1500;
-const PER_ASSISTANT_THINKING_MAX: usize = 800;
-const TAIL_BUDGET: usize = 28_000;
+// Budgets are in chars. Target ≈ 200K tokens: mixed code/English (~4 chars/token)
+// and Chinese (~1 char/token) blends to roughly 3 chars/token → 600K chars.
+const ANCHOR_MAX: usize = 4_000;
+const PER_USER_MAX: usize = 8_000;
+const PER_ASSISTANT_TEXT_MAX: usize = 12_000;
+const PER_ASSISTANT_THINKING_MAX: usize = 4_000;
+const TAIL_BUDGET: usize = 600_000;
 
 pub struct LlmInput {
     pub anchor: Option<String>,
@@ -25,6 +27,9 @@ pub struct LlmInput {
     pub omitted_count: usize,
     /// e.g. "Read×12, Edit×8, Bash×3"
     pub tool_stats: String,
+    /// PR URLs from `pr-link` events in the window, e.g.
+    /// "flexcompute/flex#14521 — https://github.com/flexcompute/flex/pull/14521"
+    pub pr_links: Vec<String>,
 }
 
 impl LlmInput {
@@ -46,6 +51,13 @@ impl LlmInput {
             out.push_str("(none)");
         } else {
             out.push_str(&self.tool_stats);
+        }
+        if !self.pr_links.is_empty() {
+            out.push_str("\n\nPR LINKS SEEN IN SESSION:\n");
+            for link in &self.pr_links {
+                out.push_str(link);
+                out.push('\n');
+            }
         }
         out
     }
@@ -103,10 +115,12 @@ pub fn build_for_window(
         if anchor.is_none() {
             if let Some(t) = first_user_text(content) {
                 let cleaned = crate::parser::clean_summary_text(&t);
+                // Local-command echoes clean to "" — keep scanning so the next
+                // genuine user message becomes the anchor.
                 if !cleaned.is_empty() {
                     anchor = Some(truncate_chars(&cleaned, ANCHOR_MAX));
+                    break;
                 }
-                break; // anchor set — done with first pass
             }
         }
     }
@@ -123,6 +137,14 @@ pub fn build_for_window(
             Some(t) => t,
             None => continue,
         };
+        // Label turns with local HH:MM so the model can weight work by how the
+        // day actually progressed instead of recency.
+        let time_label = msg
+            .get("timestamp")
+            .and_then(|t| t.as_str())
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|dt| dt.with_timezone(&chrono::Local).format(" %H:%M").to_string())
+            .unwrap_or_default();
         match msg_type {
             "user" => {
                 let content = match msg.get("message").and_then(|m| m.get("content")) {
@@ -145,12 +167,12 @@ pub fn build_for_window(
                 if cost > budget {
                     let allow = (budget - 16).max(0) as usize;
                     if allow > 0 {
-                        tail_rev.push(("user".into(), truncate_chars(&body, allow)));
+                        tail_rev.push((format!("user{}", time_label), truncate_chars(&body, allow)));
                         tail_start_index = idx;
                     }
                     break;
                 }
-                tail_rev.push(("user".into(), body));
+                tail_rev.push((format!("user{}", time_label), body));
                 tail_start_index = idx;
                 budget -= cost;
             }
@@ -197,12 +219,12 @@ pub fn build_for_window(
                 if cost > budget {
                     let allow = (budget - 16).max(0) as usize;
                     if allow > 0 {
-                        tail_rev.push(("assistant".into(), truncate_chars(&body, allow)));
+                        tail_rev.push((format!("assistant{}", time_label), truncate_chars(&body, allow)));
                         tail_start_index = idx;
                     }
                     break;
                 }
-                tail_rev.push(("assistant".into(), body));
+                tail_rev.push((format!("assistant{}", time_label), body));
                 tail_start_index = idx;
                 budget -= cost;
             }
@@ -255,11 +277,31 @@ pub fn build_for_window(
         }
     }
 
+    // 5. PR links: dedupe pr-link events in the window (they carry full URLs)
+    let mut pr_links: Vec<String> = Vec::new();
+    let mut seen_urls: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for msg in &messages {
+        if msg.get("type").and_then(|v| v.as_str()) != Some("pr-link") {
+            continue;
+        }
+        let url = msg.get("prUrl").and_then(|v| v.as_str()).unwrap_or("");
+        if url.is_empty() || !seen_urls.insert(url.to_string()) {
+            continue;
+        }
+        let repo = msg.get("prRepository").and_then(|v| v.as_str()).unwrap_or("");
+        let label = match (repo.is_empty(), msg.get("prNumber").and_then(|v| v.as_i64())) {
+            (false, Some(n)) => format!("{}#{}", repo, n),
+            _ => url.to_string(),
+        };
+        pr_links.push(format!("{} — {}", label, url));
+    }
+
     Ok(LlmInput {
         anchor,
         tail_turns: tail_rev,
         omitted_count: omitted,
         tool_stats,
+        pr_links,
     })
 }
 

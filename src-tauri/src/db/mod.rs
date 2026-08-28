@@ -131,6 +131,8 @@ impl Database {
                 tags          TEXT,
                 input_hash    TEXT,
                 generated_at  INTEGER,
+                noise         INTEGER DEFAULT 0,
+                refs          TEXT,
                 PRIMARY KEY (session_db_id, date)
             );
 
@@ -161,6 +163,11 @@ impl Database {
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN summary_at INTEGER", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN summary_input_hash TEXT", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN ai_tags TEXT", []);
+        let _ = conn.execute(
+            "ALTER TABLE daily_session_summaries ADD COLUMN noise INTEGER DEFAULT 0",
+            [],
+        );
+        let _ = conn.execute("ALTER TABLE daily_session_summaries ADD COLUMN refs TEXT", []);
 
         Ok(())
     }
