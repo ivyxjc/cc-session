@@ -1,9 +1,8 @@
 use crate::backup;
 use crate::db::Database;
 use crate::db::models::{Backup, BackupConfig};
-use crate::parser;
-use crate::claude::converter::to_view_message;
 use crate::models::ViewMessage;
+use crate::sources::{self, Provider};
 use rusqlite::params;
 use std::path::Path;
 use std::sync::Arc;
@@ -128,6 +127,7 @@ pub fn delete_backup(
 
 #[tauri::command]
 pub fn get_backup_messages(
+    db: State<'_, Arc<Database>>,
     backup_path: String,
     offset: Option<usize>,
     limit: Option<usize>,
@@ -136,8 +136,13 @@ pub fn get_backup_messages(
     if !path.exists() {
         return Err(format!("Backup file not found: {}", backup_path));
     }
-    let messages = parser::load_messages(path, offset.unwrap_or(0), limit.unwrap_or(200))?;
-    Ok(messages.into_iter().map(to_view_message).collect())
+    // A backup is read with its origin session's provider; unknown → Claude.
+    let provider: Provider = db.conn().query_row(
+        "SELECT s.provider FROM backups b JOIN sessions s ON b.session_id = s.id WHERE b.backup_path = ?1",
+        params![backup_path],
+        |row| row.get(0),
+    ).unwrap_or(Provider::Claude);
+    sources::load_messages(provider, path, offset.unwrap_or(0), limit.unwrap_or(200))
 }
 
 #[tauri::command]

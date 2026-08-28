@@ -23,19 +23,19 @@ function longestCommonPrefix(paths: string[]): string {
 }
 
 export function ProjectGroupView() {
-  const { selectedProjectGroup, selectProject } = useAppStore();
+  const { provider, selectedProjectGroup, selectProject } = useAppStore();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!selectedProjectGroup) return;
     setLoading(true);
-    listProjects("time").then((all) => {
+    listProjects("time", provider).then((all) => {
       const grouped = all.filter((p) => p.displayName === selectedProjectGroup && p.sessionCount > 0);
       setProjects(grouped);
       setLoading(false);
     });
-  }, [selectedProjectGroup]);
+  }, [provider, selectedProjectGroup]);
 
   const commonPrefix = useMemo(
     () => longestCommonPrefix(projects.map((p) => p.originalPath)),

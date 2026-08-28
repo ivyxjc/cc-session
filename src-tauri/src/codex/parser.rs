@@ -1,4 +1,6 @@
+use crate::parser::{DayTokens, SessionParseResult};
 use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -189,6 +191,167 @@ pub fn load_latest_messages(path: &Path, count: usize) -> Result<(Vec<CodexRespo
     }
 
     Ok((tail.into_iter().collect(), total))
+}
+
+/// Token usage carried by a `token_count` event's `last_token_usage`, mapped onto the
+/// Claude-style split the index uses. Codex's `input_tokens` *includes* cached
+/// tokens, so the uncached share is derived.
+struct TurnUsage {
+    input: i64,
+    output: i64,
+    cache_creation: i64,
+    cache_read: i64,
+}
+
+fn last_turn_usage(event: &CodexEvent) -> Option<TurnUsage> {
+    if event.event_type != "event_msg" || event.payload.get("type")?.as_str()? != "token_count" {
+        return None;
+    }
+    let usage = event.payload.get("info")?.get("last_token_usage")?;
+    let get = |k: &str| usage.get(k).and_then(|v| v.as_i64()).unwrap_or(0);
+    let cached = get("cached_input_tokens");
+    Some(TurnUsage {
+        input: (get("input_tokens") - cached).max(0),
+        output: get("output_tokens"),
+        cache_creation: get("cache_write_input_tokens"),
+        cache_read: cached,
+    })
+}
+
+/// Codex injects environment/instruction payloads as `user` messages wrapped in a
+/// single XML-ish tag (`<environment_context>…</environment_context>`). Those are
+/// not prompts the person typed.
+pub fn is_injected_user_text(text: &str) -> bool {
+    let t = text.trim_start();
+    t.starts_with("<environment_context>")
+        || t.starts_with("<user_instructions>")
+        || t.starts_with("<permissions instructions>")
+        || t.starts_with("<turn_aborted>")
+        || t.starts_with("<skills_instructions>")
+}
+
+/// Session-level metadata for the index, mirroring `parser::parse_session_metadata`.
+pub fn parse_session_metadata(path: &Path) -> Result<SessionParseResult, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+    let reader = BufReader::new(file);
+
+    let mut result = SessionParseResult {
+        slug: None,
+        version: None,
+        permission_mode: None,
+        git_branch: None,
+        started_at: None,
+        last_active: None,
+        message_count: 0,
+        user_msg_count: 0,
+        assistant_msg_count: 0,
+        total_input_tokens: 0,
+        total_output_tokens: 0,
+        total_cache_creation_tokens: 0,
+        total_cache_read_tokens: 0,
+        summary: None,
+    };
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Read error: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let event: CodexEvent = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if let Some(ref ts) = event.timestamp {
+            if result.started_at.is_none() {
+                result.started_at = Some(ts.clone());
+            }
+            result.last_active = Some(ts.clone());
+        }
+
+        if event.event_type == "session_meta" {
+            result.version = event.payload.get("cli_version").and_then(|v| v.as_str()).map(String::from);
+            result.git_branch = event.payload.get("git").and_then(|g| g.get("branch")).and_then(|v| v.as_str()).map(String::from);
+            continue;
+        }
+
+        if let Some(usage) = last_turn_usage(&event) {
+            result.total_input_tokens += usage.input;
+            result.total_output_tokens += usage.output;
+            result.total_cache_creation_tokens += usage.cache_creation;
+            result.total_cache_read_tokens += usage.cache_read;
+            continue;
+        }
+
+        match parse_event(&event) {
+            Some(CodexResponseItem::UserMessage { texts, .. }) => {
+                if texts.iter().all(|t| is_injected_user_text(t)) {
+                    continue;
+                }
+                result.message_count += 1;
+                result.user_msg_count += 1;
+                if result.summary.is_none() {
+                    if let Some(text) = texts.iter().find(|t| !is_injected_user_text(t)) {
+                        let cleaned = crate::parser::clean_summary_text(text);
+                        if !cleaned.is_empty() {
+                            result.summary = Some(crate::parser::truncate_at_boundary(&cleaned, 100));
+                        }
+                    }
+                }
+            }
+            Some(CodexResponseItem::AssistantMessage { .. }) => {
+                result.message_count += 1;
+                result.assistant_msg_count += 1;
+            }
+            _ => {}
+        }
+    }
+
+    Ok(result)
+}
+
+/// Per-day token usage, mirroring `parser::extract_daily_tokens`.
+pub fn extract_daily_tokens(path: &Path) -> Result<HashMap<String, DayTokens>, String> {
+    let file = File::open(path).map_err(|e| format!("Failed to open {}: {}", path.display(), e))?;
+    let reader = BufReader::new(file);
+
+    let mut daily: HashMap<String, DayTokens> = HashMap::new();
+    let mut current_date = String::new();
+
+    for line in reader.lines() {
+        let line = line.map_err(|e| format!("Read error: {}", e))?;
+        if line.trim().is_empty() {
+            continue;
+        }
+        let event: CodexEvent = match serde_json::from_str(&line) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+
+        if let Some(ts) = event.timestamp.as_deref() {
+            if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(ts) {
+                current_date = dt.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string();
+            }
+        }
+        let date = || if current_date.is_empty() { "unknown".to_string() } else { current_date.clone() };
+
+        if let Some(usage) = last_turn_usage(&event) {
+            let entry = daily.entry(date()).or_default();
+            entry.input_tokens += usage.input;
+            entry.output_tokens += usage.output;
+            entry.cache_creation_tokens += usage.cache_creation;
+            entry.cache_read_tokens += usage.cache_read;
+            continue;
+        }
+
+        if let Some(CodexResponseItem::UserMessage { texts, .. }) = parse_event(&event) {
+            if !texts.iter().all(|t| is_injected_user_text(t)) {
+                daily.entry(date()).or_default().user_msg_count += 1;
+            }
+        }
+    }
+
+    Ok(daily)
 }
 
 fn parse_event(event: &CodexEvent) -> Option<CodexResponseItem> {
@@ -415,6 +578,52 @@ mod tests {
         assert_eq!(items.len(), 2);
         assert_eq!(tokens_of(&items[0]), (Some(10), false));
         assert_eq!(tokens_of(&items[1]), (Some(20), false));
+    }
+
+    const META: &str = r#"{"timestamp":"2026-08-09T16:15:29.208Z","type":"session_meta","payload":{"id":"t1","cwd":"/w","cli_version":"0.147.0","git":{"branch":"main"}}}"#;
+    const ENV_CTX: &str = r#"{"timestamp":"2026-08-09T16:15:30.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>\n  <cwd>/w</cwd>\n</environment_context>"}]}}"#;
+    const USER: &str = r#"{"timestamp":"2026-08-09T16:15:31.000Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"fix the login bug"}]}}"#;
+    const ASSISTANT: &str = r#"{"timestamp":"2026-08-09T16:15:40.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"done"}]}}"#;
+    const TOKENS: &str = r#"{"timestamp":"2026-08-09T16:15:41.000Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":23986,"cached_input_tokens":11008,"cache_write_input_tokens":0,"output_tokens":275,"reasoning_output_tokens":126}}}}"#;
+
+    #[test]
+    fn session_metadata_mirrors_the_claude_index_fields() {
+        let path = write_session(&[META, ENV_CTX, USER, ASSISTANT, TOKENS]);
+        let r = parse_session_metadata(&path).unwrap();
+        assert_eq!(r.version.as_deref(), Some("0.147.0"));
+        assert_eq!(r.git_branch.as_deref(), Some("main"));
+        assert_eq!(r.started_at.as_deref(), Some("2026-08-09T16:15:29.208Z"));
+        assert_eq!(r.last_active.as_deref(), Some("2026-08-09T16:15:41.000Z"));
+        // The injected <environment_context> message is not a user turn.
+        assert_eq!(r.user_msg_count, 1);
+        assert_eq!(r.assistant_msg_count, 1);
+        assert_eq!(r.message_count, 2);
+        assert_eq!(r.summary.as_deref(), Some("fix the login bug"));
+        // Codex input_tokens includes cached tokens; the index stores them split.
+        assert_eq!(r.total_input_tokens, 23986 - 11008);
+        assert_eq!(r.total_cache_read_tokens, 11008);
+        assert_eq!(r.total_output_tokens, 275);
+    }
+
+    #[test]
+    fn daily_tokens_attribute_usage_to_the_turn_date() {
+        let path = write_session(&[META, USER, ASSISTANT, TOKENS]);
+        let daily = extract_daily_tokens(&path).unwrap();
+        assert_eq!(daily.len(), 1);
+        let day = daily.values().next().unwrap();
+        assert_eq!(day.user_msg_count, 1);
+        assert_eq!(day.output_tokens, 275);
+        assert_eq!(day.cache_read_tokens, 11008);
+    }
+
+    #[test]
+    fn claude_raw_projection_drops_injected_context_and_keeps_tool_shape() {
+        let path = write_session(&[META, ENV_CTX, USER, REASONING, ASSISTANT]);
+        let raw = super::super::converter::to_claude_raw(&path).unwrap();
+        let types: Vec<&str> = raw.iter().map(|v| v["type"].as_str().unwrap()).collect();
+        assert_eq!(types, vec!["user", "assistant", "assistant"]);
+        assert_eq!(raw[0]["message"]["content"][0]["text"], "fix the login bug");
+        assert_eq!(raw[1]["message"]["content"][0]["type"], "thinking");
     }
 
     #[test]

@@ -12,15 +12,15 @@ A Tauri 2 + React + TypeScript desktop app for browsing and managing local Claud
 ## Key Directories
 - `src-tauri/src/` — Rust backend (scanner, parser, monitor, backup, commands, db, models, claude, codex)
 - `src/` — React frontend (components, stores, lib)
-- `src/components/codex/` — Codex-specific frontend views
 - `docs/specs/` — Design specs
 
 ## Architecture
-- Claude: reads `~/.claude/` read-only, scans JSONL sessions, indexes into app SQLite at `~/Library/Application Support/claude-session-manager/`
-- Codex: reads `~/.codex/state_5.sqlite` read-only for metadata, parses `~/.codex/sessions/` JSONL for conversations
-- Unified view model (`ViewMessage`/`ViewContentBlock`) — provider-specific parsers convert to shared types
-- `scanner` discovers Claude sessions, `parser` extracts messages, `monitor` handles live tracking
-- `codex/` module reads Codex DB directly (no scanning needed)
+- One index for every provider: `projects` / `sessions` / `subagents` rows carry a `provider` column (`claude` | `codex`). Favorites, tags, hide, FTS search, backups, export, AI summaries and daily activity all work off that index and are provider-agnostic.
+- `sources/` is the provider boundary (`Provider` enum + dispatch: `parse_session_metadata`, `load_messages`, `load_latest_messages`, `extract_daily_tokens`, `raw_messages`). Code outside `claude/` and `codex/` never calls a provider parser directly.
+- Claude: `scanner` reads `~/.claude/projects/` read-only, `parser` extracts messages, `monitor` handles live tracking (Claude-only).
+- Codex: `codex/scanner` reads `~/.codex/state_5.sqlite` read-only for thread metadata and parses the rollout JSONL for counts/tokens/summary; `codex/parser` + `codex/converter` produce `ViewMessage`s. Codex `encoded_path` is the cwd itself.
+- Unified view model (`ViewMessage`/`ViewContentBlock`) — provider-specific converters produce shared types. Consumers written against Claude's raw line shape (LLM input builder, FTS indexer) get other providers projected into that shape via `sources::raw_messages`.
+- Frontend: the provider switch is a filter passed to `list_projects` / `list_sessions`; the same components render both providers.
 - Frontend uses react-virtuoso for virtualized message lists, zustand for state
 
 ## Conventions

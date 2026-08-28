@@ -8,6 +8,7 @@ mod monitor;
 mod models;
 mod claude;
 mod codex;
+mod sources;
 mod search;
 mod llm;
 mod pty;
@@ -80,7 +81,6 @@ pub fn run() {
             commands::copy_session::copy_session_to_path,
             commands::usage::get_daily_usage,
             commands::export::export_session,
-            commands::export::export_codex_session,
             commands::search::search_message_content,
             commands::ai_summary::get_ai_summary_config,
             commands::ai_summary::set_ai_summary_config,
@@ -94,13 +94,6 @@ pub fn run() {
             commands::pty::pty_detach,
             commands::day_planner::get_day_planner,
             commands::day_planner::generate_daily_summary,
-            codex::commands::codex_get_session,
-            codex::commands::codex_list_projects,
-            codex::commands::codex_list_sessions,
-            codex::commands::codex_get_messages,
-            codex::commands::codex_get_latest_messages,
-            codex::commands::codex_get_subagents,
-            codex::commands::codex_get_subagent_messages,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

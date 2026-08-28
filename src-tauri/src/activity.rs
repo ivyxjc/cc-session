@@ -32,8 +32,15 @@ pub fn collect_timestamps_on_day(jsonl_path: &str, start_ms: i64, end_ms: i64) -
             Ok(v) => v,
             Err(_) => continue,
         };
+        // Claude: top-level `type` is the role. Codex: `response_item` with a
+        // `message` payload. Both carry the same top-level ISO `timestamp`.
         let msg_type = val.get("type").and_then(|v| v.as_str()).unwrap_or("");
-        if msg_type != "user" && msg_type != "assistant" {
+        let is_message = match msg_type {
+            "user" | "assistant" => true,
+            "response_item" => val.get("payload").and_then(|p| p.get("type")).and_then(|t| t.as_str()) == Some("message"),
+            _ => false,
+        };
+        if !is_message {
             continue;
         }
         let ts_str = match val.get("timestamp").and_then(|v| v.as_str()) {

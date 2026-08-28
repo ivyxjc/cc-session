@@ -1,4 +1,4 @@
-import type { SessionSummary, LiveSession, Tag } from "../../lib/types";
+import type { SessionSummary, LiveSession, Tag, Provider } from "../../lib/types";
 import { formatDateTime, formatTokens, formatFileSize, formatRelativeTime } from "../../lib/format";
 import { useAppStore } from "../../stores/appStore";
 import { toggleHideSession } from "../../lib/tauri";
@@ -9,12 +9,14 @@ import { MultiplexerButton } from "../common/MultiplexerButton";
 import { TagBadge } from "../common/TagBadge";
 import { LiveStatusBadge } from "../live/LiveStatusBadge";
 import { RunningTimer } from "../live/RunningTimer";
+import { ProviderBadge } from "../common/ProviderBadge";
 
 /** Common subset rendered by the unified card. Both SessionSummary and LiveSession get
  *  normalized into this shape before rendering. */
 interface SessionCardModel {
   /** DB row id (null when the live session hasn't been indexed yet). */
   id: number | null;
+  provider: Provider;
   sessionId: string;
   projectName: string;
   projectPath: string;
@@ -70,6 +72,7 @@ function normalize(s: SessionSummary | LiveSession): SessionCardModel {
   if (isLiveSession(s)) {
     return {
       id: s.dbSessionId,
+      provider: "claude", // live tracking only follows Claude Code processes
       sessionId: s.sessionId,
       projectName: s.projectName || s.cwd.split("/").pop() || s.cwd,
       projectPath: s.projectPath || s.cwd,
@@ -96,6 +99,7 @@ function normalize(s: SessionSummary | LiveSession): SessionCardModel {
   }
   return {
     id: s.id,
+    provider: s.provider,
     sessionId: s.sessionId,
     projectName: s.projectName,
     projectPath: s.projectPath,
@@ -186,6 +190,7 @@ export function SessionCard({ session, live, onClick, onHide, hideHideButton }: 
       {/* Row 2: project · sessionId · branch */}
       <div className="flex items-baseline gap-2 mt-1">
         <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300 truncate">{m.projectName}</span>
+        {m.provider !== "claude" && <ProviderBadge provider={m.provider} />}
         <CopyText text={m.sessionId} display={m.sessionId.slice(0, 8)} className="text-xs text-zinc-400 font-mono" />
         <span className="text-xs text-zinc-500 truncate">{m.gitBranch || "—"}</span>
       </div>

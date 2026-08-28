@@ -1,14 +1,16 @@
+use crate::sources::{self, Provider};
 use rusqlite::{params, Connection};
 use serde::Serialize;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-/// Index all text/thinking content of a session's JSONL into messages_fts.
+/// Index all text/thinking content of a session into messages_fts.
 /// Replaces any existing rows for this session_db_id.
 pub fn index_session_content(
     conn: &Connection,
     session_db_id: i64,
+    provider: Provider,
     jsonl_path: &Path,
 ) -> Result<(), String> {
     // Drop stale rows for this session first
@@ -18,11 +20,9 @@ pub fn index_session_content(
     )
     .map_err(|e| format!("FTS delete error: {}", e))?;
 
-    let file = match File::open(jsonl_path) {
-        Ok(f) => f,
-        Err(_) => return Ok(()), // Missing file isn't fatal — silently skip
-    };
-    let reader = BufReader::new(file);
+    if !jsonl_path.exists() {
+        return Ok(()); // Missing file isn't fatal — silently skip
+    }
 
     let mut stmt = conn
         .prepare(
@@ -31,23 +31,39 @@ pub fn index_session_content(
         )
         .map_err(|e| format!("FTS prepare error: {}", e))?;
 
-    for line in reader.lines() {
-        let line = match line {
-            Ok(l) => l,
-            Err(_) => continue,
-        };
-        if line.trim().is_empty() {
-            continue;
+    match provider {
+        // Claude files can be hundreds of MB — stream them line by line.
+        Provider::Claude => {
+            let file = File::open(jsonl_path).map_err(|e| format!("FTS open error: {}", e))?;
+            for line in BufReader::new(file).lines().map_while(Result::ok) {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                if let Ok(raw) = serde_json::from_str::<serde_json::Value>(&line) {
+                    index_raw_message(&mut stmt, session_db_id, &raw)?;
+                }
+            }
         }
+        // Other providers are projected into the Claude line shape.
+        _ => {
+            for raw in sources::raw_messages(provider, jsonl_path)? {
+                index_raw_message(&mut stmt, session_db_id, &raw)?;
+            }
+        }
+    }
 
-        let raw: serde_json::Value = match serde_json::from_str(&line) {
-            Ok(v) => v,
-            Err(_) => continue,
-        };
+    Ok(())
+}
 
+fn index_raw_message(
+    stmt: &mut rusqlite::Statement<'_>,
+    session_db_id: i64,
+    raw: &serde_json::Value,
+) -> Result<(), String> {
+    {
         let msg_type = raw.get("type").and_then(|v| v.as_str()).unwrap_or("");
         if msg_type != "user" && msg_type != "assistant" {
-            continue;
+            return Ok(());
         }
 
         let uuid = raw.get("uuid").and_then(|v| v.as_str()).unwrap_or("");
@@ -75,7 +91,7 @@ pub fn index_session_content(
                         .map_err(|e| format!("FTS insert error: {}", e))?;
                 }
             }
-            continue;
+            return Ok(());
         }
 
         for block in content_arr.unwrap() {

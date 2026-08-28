@@ -6,6 +6,7 @@ import type {
   MultiplexerConfig, MultiplexerDetectionResult, ExternalClientSize,
   ContentSearchResult,
   AiSummaryConfig, AiSummaryResult,
+  Provider,
 } from "./types";
 
 // Safe invoke wrapper — returns empty/default when not in Tauri webview (e.g. browser dev)
@@ -17,12 +18,13 @@ function invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
   return tauriInvoke<T>(cmd, args);
 }
 
-// Projects
-export const listProjects = (sortBy?: string) =>
-  invoke<Project[]>("list_projects", { sortBy });
+// Projects — `provider` omitted = every provider
+export const listProjects = (sortBy?: string, provider?: Provider) =>
+  invoke<Project[]>("list_projects", { sortBy, provider });
 
-// Sessions
+// Sessions — `provider` omitted = every provider
 export const listSessions = (params: {
+  provider?: Provider;
   projectId?: number;
   tagId?: number;
   favorited?: boolean;
@@ -156,9 +158,6 @@ export const copySessionToPath = (sessionId: number, targetPath: string) =>
 export const exportSession = (sessionId: number, projectPath: string, targetPath: string) =>
   invoke<void>("export_session", { sessionId, projectPath, targetPath });
 
-export const exportCodexSession = (threadId: string, targetPath: string) =>
-  invoke<void>("export_codex_session", { threadId, targetPath });
-
 // Images
 export const readImageFile = (path: string) =>
   invoke<string>("read_image_file", { path });
@@ -182,31 +181,6 @@ export const watchSession = (sessionId: string) =>
 
 export const unwatchSession = (sessionId: string) =>
   invoke<void>("unwatch_session", { sessionId });
-
-// Codex
-export const codexGetSession = (threadId: string) =>
-  invoke<import("./types").CodexSession>("codex_get_session", { threadId });
-
-export const codexListProjects = (sortBy?: string) =>
-  invoke<import("./types").CodexProject[]>("codex_list_projects", { sortBy });
-
-export const codexListSessions = (params: {
-  cwd?: string;
-  sortBy?: string;
-  showArchived?: boolean;
-}) => invoke<import("./types").CodexSession[]>("codex_list_sessions", params);
-
-export const codexGetMessages = (threadId: string, offset = 0, limit = 50) =>
-  invoke<ViewMessage[]>("codex_get_messages", { threadId, offset, limit });
-
-export const codexGetLatestMessages = (threadId: string, count = 50) =>
-  invoke<LatestMessagesResult>("codex_get_latest_messages", { threadId, count });
-
-export const codexGetSubagents = (threadId: string) =>
-  invoke<import("./types").CodexSubagent[]>("codex_get_subagents", { threadId });
-
-export const codexGetSubagentMessages = (threadId: string, offset = 0, limit = 200) =>
-  invoke<ViewMessage[]>("codex_get_subagent_messages", { threadId, offset, limit });
 
 // Content search
 export const searchMessageContent = (query: string, limit = 50) =>

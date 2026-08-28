@@ -12,6 +12,7 @@ use crate::db::Database;
 use crate::llm::client::{parse_json_payload, LlmClient};
 use crate::llm::input_builder;
 use crate::llm::summary::{load_config, GenError, RefLink, SummaryAndTags};
+use crate::sources::Provider;
 use rusqlite::params;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -102,7 +103,8 @@ pub async fn generate_for_session_day(
     force: bool,
 ) -> Result<(String, Vec<String>, bool, Vec<RefLink>), GenError> {
     // Look up session metadata.
-    let (jsonl_path, prev_hash, prev_summary, prev_tags_json, prev_noise, prev_refs_json): (
+    let (provider, jsonl_path, prev_hash, prev_summary, prev_tags_json, prev_noise, prev_refs_json): (
+        Provider,
         String,
         Option<String>,
         Option<String>,
@@ -112,13 +114,13 @@ pub async fn generate_for_session_day(
     ) = {
         let conn = db.conn();
         conn.query_row(
-            "SELECT s.jsonl_path, d.input_hash, d.summary, d.tags, d.noise, d.refs
+            "SELECT s.provider, s.jsonl_path, d.input_hash, d.summary, d.tags, d.noise, d.refs
              FROM sessions s
              LEFT JOIN daily_session_summaries d
                ON d.session_db_id = s.id AND d.date = ?2
              WHERE s.id = ?1",
             params![session_db_id, date],
-            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?)),
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?, row.get(6)?)),
         )
         .map_err(|e| match e {
             rusqlite::Error::QueryReturnedNoRows => GenError::SessionNotFound,
@@ -128,7 +130,7 @@ pub async fn generate_for_session_day(
 
     // Build LLM input for this window.
     let path = PathBuf::from(&jsonl_path);
-    let input = input_builder::build_for_window(&path, Some((start_ms, end_ms)))
+    let input = input_builder::build_for_window(provider, &path, Some((start_ms, end_ms)))
         .map_err(GenError::Build)?;
     let rendered = input.render();
     let new_hash = format!("{}:{:x}", SCHEMA_VERSION, Sha256::digest(rendered.as_bytes()));

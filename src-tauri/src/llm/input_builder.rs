@@ -6,10 +6,9 @@
 //!   and tool_result), per-message capped, until ~28K chars filled.
 //! - Tool stats: count tool names across the whole session.
 
+use crate::sources::{self, Provider};
 use serde_json::Value;
 use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader};
 use std::path::Path;
 
 // Budgets are in chars. Target ≈ 200K tokens: mixed code/English (~4 chars/token)
@@ -70,33 +69,21 @@ impl LlmInput {
 /// (not the session's very first message); tail walks backward through window
 /// messages; tool stats count only tools used in the window.
 pub fn build_for_window(
+    provider: Provider,
     jsonl_path: &Path,
     window: Option<(i64, i64)>,
 ) -> Result<LlmInput, String> {
-    let file = File::open(jsonl_path).map_err(|e| format!("open: {}", e))?;
-    let reader = BufReader::new(file);
-
-    let mut messages: Vec<Value> = Vec::new();
-    for line in reader.lines() {
-        let line = line.map_err(|e| format!("read: {}", e))?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(v) = serde_json::from_str::<Value>(&line) {
-            // Filter by window if provided.
-            if let Some((start_ms, end_ms)) = window {
-                let ts_ms = v
-                    .get("timestamp")
-                    .and_then(|t| t.as_str())
-                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                    .map(|dt| dt.timestamp_millis());
-                match ts_ms {
-                    Some(ts) if ts >= start_ms && ts <= end_ms => {}
-                    _ => continue,
-                }
-            }
-            messages.push(v);
-        }
+    let mut messages: Vec<Value> = sources::raw_messages(provider, jsonl_path)?;
+    // Filter by window if provided.
+    if let Some((start_ms, end_ms)) = window {
+        messages.retain(|v| {
+            let ts_ms = v
+                .get("timestamp")
+                .and_then(|t| t.as_str())
+                .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                .map(|dt| dt.timestamp_millis());
+            matches!(ts_ms, Some(ts) if ts >= start_ms && ts <= end_ms)
+        });
     }
 
     // 1. Anchor: first real user message (using parser's cleanup heuristic to mirror the heuristic summary)

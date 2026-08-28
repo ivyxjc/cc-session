@@ -10,9 +10,6 @@ import { LiveDashboard } from "../live/LiveDashboard";
 import { LiveConversationView } from "../live/LiveConversationView";
 import { UsagePage } from "../usage/UsagePage";
 import { DayPlannerView } from "../dayplanner/DayPlannerView";
-import { CodexProjectList } from "../codex/CodexProjectList";
-import { CodexSessionList } from "../codex/CodexSessionList";
-import { CodexConversationView } from "../codex/CodexConversationView";
 
 export function MainContent() {
   const { view } = useAppStore();
@@ -42,12 +39,6 @@ export function MainContent() {
       return <UsagePage />;
     case "dayPlanner":
       return <DayPlannerView />;
-    case "codexProjects":
-      return <CodexProjectList />;
-    case "codexSessions":
-      return <CodexSessionList />;
-    case "codexConversation":
-      return <CodexConversationView />;
     default:
       return <ProjectList />;
   }
