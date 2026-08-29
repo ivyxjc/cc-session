@@ -83,8 +83,11 @@ mod thinking_roundtrip {
     }
 }
 
+/// Raw `usage` object as it appears in Claude's JSONL — snake_case, per the
+/// project convention for raw parser types. (`ViewUsage` is the camelCase type
+/// the frontend receives.) Renaming these to camelCase silently zeroed every
+/// field, since each one defaults.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Usage {
     #[serde(default)]
     pub input_tokens: i64,

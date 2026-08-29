@@ -176,6 +176,21 @@ impl Database {
         // Backups outlive their session row, so the provider is stored on the
         // backup itself rather than resolved through sessions at restore time.
         let _ = conn.execute("ALTER TABLE backups ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'", []);
+
+        // `INSERT OR REPLACE INTO subagents` never replaced anything: the table
+        // had no unique key beyond the rowid, so every rescan of a changed
+        // session appended another copy of each subagent. Collapse the existing
+        // duplicates, then make the constraint real.
+        let _ = conn.execute(
+            "DELETE FROM subagents WHERE id NOT IN
+                (SELECT MIN(id) FROM subagents GROUP BY session_id, agent_id)",
+            [],
+        );
+        let _ = conn.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_subagents_session_agent
+             ON subagents(session_id, agent_id)",
+            [],
+        );
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider, last_active DESC)", []);
 
         Ok(())

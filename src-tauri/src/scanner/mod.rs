@@ -121,8 +121,9 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
 
     let conn = db.conn();
 
-    // Track which session jsonl_paths we see on disk
-    let mut seen_paths: Vec<String> = Vec::new();
+    // Track which session jsonl_paths we see on disk (set: the orphan pass
+    // membership-tests every indexed row against it)
+    let mut seen_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
 
     // Iterate project directories
     let entries: Vec<_> = std::fs::read_dir(&projects_dir)
@@ -170,7 +171,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
         for jsonl_entry in jsonl_files {
             let jsonl_path = jsonl_entry.path();
             let jsonl_path_str = jsonl_path.to_string_lossy().to_string();
-            seen_paths.push(jsonl_path_str.clone());
+            seen_paths.insert(jsonl_path_str.clone());
 
             // Session ID = filename without .jsonl
             let session_id = jsonl_path.file_stem()
@@ -392,6 +393,14 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
     for id in &orphans {
         conn.execute("DELETE FROM session_tags WHERE session_id = ?1", params![id]).ok();
         conn.execute("DELETE FROM subagents WHERE session_id = ?1", params![id]).ok();
+        // Derived data keyed by the session's row id. SQLite reuses rowids, so
+        // leaving these behind lets a future session inherit a dead session's
+        // FTS rows and per-day summaries.
+        conn.execute("DELETE FROM messages_fts WHERE session_db_id = ?1", params![id]).ok();
+        conn.execute("DELETE FROM daily_session_summaries WHERE session_db_id = ?1", params![id]).ok();
+        // `backups` and `daily_token_usage` are deliberately kept: Claude Code
+        // deletes session files after cleanupPeriodDays, and neither the user's
+        // archives nor their historical token totals should vanish with them.
         conn.execute("DELETE FROM sessions WHERE id = ?1", params![id]).ok();
         sessions_removed += 1;
     }
@@ -413,6 +422,10 @@ fn scan_subagents(conn: &rusqlite::Connection, subagent_dir: &Path, session_id: 
         params![session_id],
         |row| row.get(0),
     ).map_err(|e| format!("DB error: {}", e))?;
+
+    // Rebuild from what's on disk, so subagents that went away don't linger.
+    conn.execute("DELETE FROM subagents WHERE session_id = ?1", params![db_session_id])
+        .map_err(|e| format!("DB error: {}", e))?;
 
     for entry in std::fs::read_dir(subagent_dir).map_err(|e| format!("Read error: {}", e))? {
         let entry = entry.map_err(|e| format!("Read error: {}", e))?;
