@@ -31,8 +31,15 @@ export function ConversationView() {
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const toolResults = useIncrementalToolResults(messages);
 
+  // Bumped on every session switch. Any in-flight response whose generation no
+  // longer matches belongs to a session the user has already navigated away
+  // from, and must not touch state — otherwise a slow response for session A
+  // lands under session B and the pagination refs describe the wrong session.
+  const loadGenRef = useRef(0);
+
   useEffect(() => {
     if (!selectedSessionId) return;
+    const gen = ++loadGenRef.current;
     setLoading(true);
     setSubagentsExpanded(false);
 
@@ -44,6 +51,7 @@ export function ConversationView() {
       getSubagents(selectedSessionId),
     ])
       .then(([sess, result, subs]) => {
+        if (loadGenRef.current !== gen) return;
         const startOffset = result.totalCount - result.messages.length;
         setSession(sess);
         setMessages(result.messages);
@@ -55,6 +63,7 @@ export function ConversationView() {
         setLoading(false);
       })
       .catch((e) => {
+        if (loadGenRef.current !== gen) return;
         console.error("Failed to load conversation:", e);
         setSession(null);
         setMessages([]);
@@ -92,17 +101,25 @@ export function ConversationView() {
   const handleStartReached = useCallback(() => {
     if (!selectedSessionId || !hasOlderRef.current || loadingOlderRef.current) return;
     loadingOlderRef.current = true;
+    const gen = loadGenRef.current;
 
     const loadCount = Math.min(OLDER_BATCH, earliestOffsetRef.current);
     const newOffset = earliestOffsetRef.current - loadCount;
 
-    getMessages(selectedSessionId, newOffset, loadCount).then((older) => {
-      setMessages((prev) => [...older, ...prev]);
-      setFirstItemIndex(newOffset);
-      earliestOffsetRef.current = newOffset;
-      hasOlderRef.current = newOffset > 0;
-      loadingOlderRef.current = false;
-    });
+    getMessages(selectedSessionId, newOffset, loadCount)
+      .then((older) => {
+        if (loadGenRef.current !== gen) return;
+        setMessages((prev) => [...older, ...prev]);
+        setFirstItemIndex(newOffset);
+        earliestOffsetRef.current = newOffset;
+        hasOlderRef.current = newOffset > 0;
+        loadingOlderRef.current = false;
+      })
+      .catch((e) => {
+        console.error("Failed to load older messages:", e);
+        // Must clear, or the guard above wedges older-history loading for good.
+        if (loadGenRef.current === gen) loadingOlderRef.current = false;
+      });
   }, [selectedSessionId]);
 
   if (loading) {
@@ -117,10 +134,13 @@ export function ConversationView() {
       <SessionHeader
         session={session}
         onRefresh={() => {
-          listSessions({ projectId: undefined }).then((sessions) => {
-            const updated = sessions.find((s) => s.id === selectedSessionId);
-            if (updated) setSession(updated);
-          });
+          // showHidden so refreshing a hidden session still finds its row.
+          listSessions({ projectId: undefined, showHidden: true })
+            .then((sessions) => {
+              const updated = sessions.find((s) => s.id === selectedSessionId);
+              if (updated) setSession(updated);
+            })
+            .catch((e) => console.error("Failed to refresh session:", e));
         }}
       />
 
@@ -139,6 +159,7 @@ export function ConversationView() {
                 message={msg}
                 subagents={subagents}
                 toolResults={toolResults}
+                provider={session.provider}
               />
             </div>
           )}
@@ -169,6 +190,7 @@ export function ConversationView() {
                 <SubagentView
                   key={sa.id}
                   subagent={sa}
+                  provider={session.provider}
                   onLocate={() => locateSubagent(sa.description)}
                 />
               ))}

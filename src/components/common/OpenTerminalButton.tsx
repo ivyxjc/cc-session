@@ -1,9 +1,19 @@
 import { useEffect, useState } from "react";
 import { openTerminal, getTerminalConfig } from "../../lib/tauri";
-import type { TerminalConfig } from "../../lib/types";
+import type { TerminalConfig, Provider } from "../../lib/types";
 import { toast } from "../../stores/toastStore";
 
-export function OpenTerminalButton({ path, sessionId }: { path: string; sessionId?: string }) {
+/** The CLI incantation that reopens this session, per provider. */
+function resumeCommand(provider: Provider, sessionId: string): string {
+  return provider === "codex"
+    ? `codex resume ${sessionId}`
+    : `claude --resume ${sessionId}`;
+}
+
+export function OpenTerminalButton(
+  { path, sessionId, provider = "claude" }:
+  { path: string; sessionId?: string; provider?: Provider },
+) {
   const [config, setConfig] = useState<TerminalConfig | null>(null);
   const [showDropdown, setShowDropdown] = useState(false);
 
@@ -14,7 +24,7 @@ export function OpenTerminalButton({ path, sessionId }: { path: string; sessionI
   const handleOpen = (e: React.MouseEvent, terminalName?: string) => {
     e.stopPropagation();
     if (sessionId) {
-      navigator.clipboard.writeText(`claude --resume ${sessionId}`).catch(console.error);
+      navigator.clipboard.writeText(resumeCommand(provider, sessionId)).catch(console.error);
     }
     openTerminal(path, terminalName).catch((err) => {
       console.error("open_terminal failed:", err);

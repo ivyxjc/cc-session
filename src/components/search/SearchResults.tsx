@@ -98,26 +98,39 @@ export function SearchResults() {
 
     setLoading(true);
     const q = searchQuery.trim().toLowerCase();
+    // Typing fast fires overlapping queries; only the newest may render.
+    let stale = false;
 
     Promise.all([
       listProjects("time", provider),
       listSessions({ provider, sortBy: "time" }),
-    ]).then(([allProjects, allSessions]) => {
-      const matchedProjects = allProjects.filter(
-        (p) => fuzzyMatch(p.displayName, q) || fuzzyMatch(p.originalPath, q)
-      );
+    ])
+      .then(([allProjects, allSessions]) => {
+        if (stale) return;
+        const matchedProjects = allProjects.filter(
+          (p) => fuzzyMatch(p.displayName, q) || fuzzyMatch(p.originalPath, q)
+        );
 
-      const matchedSessions = allSessions.filter(
-        (s) =>
-          s.sessionId.toLowerCase().startsWith(q) ||
-          (s.slug && fuzzyMatch(s.slug, q)) ||
-          fuzzyMatch(s.projectName, q)
-      );
+        const matchedSessions = allSessions.filter(
+          (s) =>
+            s.sessionId.toLowerCase().startsWith(q) ||
+            (s.slug && fuzzyMatch(s.slug, q)) ||
+            fuzzyMatch(s.projectName, q)
+        );
 
-      setProjects(matchedProjects);
-      setSessions(matchedSessions);
-      setLoading(false);
-    });
+        setProjects(matchedProjects);
+        setSessions(matchedSessions);
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (stale) return;
+        console.error("Search failed:", e);
+        setProjects([]);
+        setSessions([]);
+        setLoading(false);
+      });
+
+    return () => { stale = true; };
   }, [provider, searchQuery]);
 
   const runContentSearch = async () => {
