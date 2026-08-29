@@ -85,6 +85,7 @@ impl Database {
 
             CREATE TABLE IF NOT EXISTS backups (
                 id            INTEGER PRIMARY KEY,
+                provider      TEXT NOT NULL DEFAULT 'claude',
                 session_id    INTEGER REFERENCES sessions(id),
                 backup_path   TEXT,
                 backup_type   TEXT,
@@ -172,6 +173,9 @@ impl Database {
         let _ = conn.execute("ALTER TABLE daily_session_summaries ADD COLUMN refs TEXT", []);
         let _ = conn.execute("ALTER TABLE projects ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'", []);
         let _ = conn.execute("ALTER TABLE sessions ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'", []);
+        // Backups outlive their session row, so the provider is stored on the
+        // backup itself rather than resolved through sessions at restore time.
+        let _ = conn.execute("ALTER TABLE backups ADD COLUMN provider TEXT NOT NULL DEFAULT 'claude'", []);
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider, last_active DESC)", []);
 
         Ok(())

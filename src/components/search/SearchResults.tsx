@@ -138,7 +138,7 @@ export function SearchResults() {
     if (!q) return;
     setContentLoading(true);
     try {
-      const results = await searchMessageContent(q, 50);
+      const results = await searchMessageContent(q, provider, 50);
       setContentSearch(q, results, null);
     } catch (e) {
       setContentSearch(q, [], String(e));

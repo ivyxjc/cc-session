@@ -132,9 +132,11 @@ pub struct ContentSearchResult {
 
 /// Search message content using FTS5 + BM25 with linear time decay.
 /// `query` is treated as a plain phrase — special FTS chars are escaped.
+/// `provider` of `None` searches every provider.
 pub fn search_messages(
     conn: &Connection,
     query: &str,
+    provider: Option<Provider>,
     limit: usize,
 ) -> Result<Vec<ContentSearchResult>, String> {
     let q = query.trim();
@@ -144,7 +146,7 @@ pub fn search_messages(
 
     // Trigram tokenizer needs at least 3 chars to use the index
     if q.chars().count() < 3 {
-        return search_messages_like(conn, q, limit);
+        return search_messages_like(conn, q, provider, limit);
     }
 
     // Escape and quote as a phrase so FTS5 doesn't interpret operators (AND/OR/NOT/quotes)
@@ -171,6 +173,7 @@ pub fn search_messages(
         JOIN sessions s ON s.id = f.session_db_id
         JOIN projects p ON p.id = s.project_id
         WHERE messages_fts MATCH ?1
+          AND (?5 IS NULL OR s.provider = ?5)
         ORDER BY weighted ASC
         LIMIT ?4
     ";
@@ -181,7 +184,7 @@ pub fn search_messages(
 
     let rows = stmt
         .query_map(
-            params![phrase, now_ms, decay_per_ms, limit as i64],
+            params![phrase, now_ms, decay_per_ms, limit as i64, provider],
             |row| {
                 Ok(ContentSearchResult {
                     session_db_id: row.get(0)?,
@@ -206,6 +209,7 @@ pub fn search_messages(
 fn search_messages_like(
     conn: &Connection,
     q: &str,
+    provider: Option<Provider>,
     limit: usize,
 ) -> Result<Vec<ContentSearchResult>, String> {
     let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
@@ -224,6 +228,7 @@ fn search_messages_like(
         JOIN sessions s ON s.id = f.session_db_id
         JOIN projects p ON p.id = s.project_id
         WHERE f.content LIKE ?2 ESCAPE '\\'
+          AND (?4 IS NULL OR s.provider = ?4)
         ORDER BY f.timestamp_ms DESC
         LIMIT ?3
     ";
@@ -231,7 +236,7 @@ fn search_messages_like(
         .prepare(sql)
         .map_err(|e| format!("LIKE query prepare error: {}", e))?;
     let rows = stmt
-        .query_map(params![q, pattern, limit as i64], |row| {
+        .query_map(params![q, pattern, limit as i64, provider], |row| {
             Ok(ContentSearchResult {
                 session_db_id: row.get(0)?,
                 session_id: row.get(1)?,

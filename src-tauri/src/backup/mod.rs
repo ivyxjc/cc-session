@@ -1,5 +1,6 @@
 use crate::db::Database;
 use crate::db::models::BackupConfig;
+use crate::sources::Provider;
 use rusqlite::params;
 use std::fs;
 use std::io::Read;
@@ -36,12 +37,12 @@ pub fn backup_session_file(
 ) -> Result<crate::db::models::Backup, String> {
     let conn = db.conn();
 
-    let (jsonl_path, session_id, project_encoded): (String, String, String) = conn.query_row(
-        "SELECT s.jsonl_path, s.session_id, p.encoded_path
+    let (provider, jsonl_path, session_id, project_encoded): (Provider, String, String, String) = conn.query_row(
+        "SELECT s.provider, s.jsonl_path, s.session_id, p.encoded_path
          FROM sessions s JOIN projects p ON s.project_id = p.id
          WHERE s.id = ?1",
         params![session_db_id],
-        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
     ).map_err(|e| format!("Session not found: {}", e))?;
 
     let source = Path::new(&jsonl_path);
@@ -54,7 +55,7 @@ pub fn backup_session_file(
 
     let timestamp = chrono::Utc::now().timestamp_millis();
     let backup_dir = PathBuf::from(&config.backup_dir)
-        .join(&project_encoded)
+        .join(project_dir_key(&project_encoded))
         .join(&session_id);
     fs::create_dir_all(&backup_dir)
         .map_err(|e| format!("Failed to create backup dir: {}", e))?;
@@ -118,9 +119,9 @@ pub fn backup_session_file(
 
     // Record in DB
     conn.execute(
-        "INSERT INTO backups (session_id, backup_path, backup_type, original_size, compressed, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        params![session_db_id, backup_path_str, "manual", original_size, config.compress, timestamp],
+        "INSERT INTO backups (provider, session_id, backup_path, backup_type, original_size, compressed, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        params![provider, session_db_id, backup_path_str, "manual", original_size, config.compress, timestamp],
     ).map_err(|e| format!("DB error: {}", e))?;
 
     conn.execute(
@@ -220,6 +221,53 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<(), String> {
     Ok(())
 }
 
+/// Directory component for a project inside the backup tree.
+///
+/// Claude's `encoded_path` is already a flat `-Users-…` token. Codex stores the
+/// raw cwd, and `PathBuf::join` with an absolute path *replaces* the base — so
+/// joining it unencoded would drop the backup into the user's own project
+/// directory instead of the backup directory. Encode anything absolute.
+fn project_dir_key(encoded_path: &str) -> String {
+    if encoded_path.starts_with('/') {
+        crate::scanner::encode_path(encoded_path)
+    } else {
+        encoded_path.to_string()
+    }
+}
+
+/// Read a backup file, decompressing when it was stored compressed.
+fn read_backup_bytes(path: &Path, compressed: bool) -> Result<Vec<u8>, String> {
+    let mut data = Vec::new();
+    fs::File::open(path)
+        .map_err(|e| format!("Read error: {}", e))?
+        .read_to_end(&mut data)
+        .map_err(|e| format!("Read error: {}", e))?;
+    if compressed {
+        zstd::decode_all(data.as_slice()).map_err(|e| format!("Decompression error: {}", e))
+    } else {
+        Ok(data)
+    }
+}
+
+/// Restore a backup over an explicit destination file.
+///
+/// Used for providers whose on-disk layout can't be reconstructed from the
+/// backup directory structure (Codex rollouts live under date-based paths).
+pub fn restore_backup_to(backup_path: &str, compressed: bool, target_path: &str) -> Result<(), String> {
+    let path = Path::new(backup_path);
+    if !path.exists() {
+        return Err(format!("Backup file not found: {}", backup_path));
+    }
+    let target = Path::new(target_path);
+    if let Some(parent) = target.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("Failed to create target dir: {}", e))?;
+    }
+    let data = read_backup_bytes(path, compressed)?;
+    fs::write(target, data).map_err(|e| format!("Write error: {}", e))
+}
+
+/// Restore a Claude backup back into `~/.claude/projects/`, reconstructing the
+/// target from the backup directory structure.
 pub fn restore_backup(backup_path: &str, compressed: bool) -> Result<(), String> {
     let path = Path::new(backup_path);
     if !path.exists() {
@@ -245,21 +293,8 @@ pub fn restore_backup(backup_path: &str, compressed: bool) -> Result<(), String>
 
     let target_path = target_dir.join(format!("{}.jsonl", session_id));
 
-    let mut data = Vec::new();
-    fs::File::open(path)
-        .map_err(|e| format!("Read error: {}", e))?
-        .read_to_end(&mut data)
-        .map_err(|e| format!("Read error: {}", e))?;
-
-    if compressed {
-        let decompressed = zstd::decode_all(data.as_slice())
-            .map_err(|e| format!("Decompression error: {}", e))?;
-        fs::write(&target_path, decompressed)
-            .map_err(|e| format!("Write error: {}", e))?;
-    } else {
-        fs::write(&target_path, &data)
-            .map_err(|e| format!("Write error: {}", e))?;
-    }
+    let data = read_backup_bytes(path, compressed)?;
+    fs::write(&target_path, data).map_err(|e| format!("Write error: {}", e))?;
 
     // Restore subagents if present
     let backup_subagent_dir = path.parent().unwrap().join("subagents");
