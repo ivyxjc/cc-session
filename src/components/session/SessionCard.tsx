@@ -167,7 +167,7 @@ export function SessionCard({ session, live, onClick, onHide, hideHideButton }: 
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <span className="text-xs text-zinc-400">{timeLabel}</span>
-          <OpenTerminalButton path={m.projectPath} sessionId={m.sessionId} />
+          <OpenTerminalButton path={m.projectPath} sessionId={m.sessionId} provider={m.provider} />
           <MultiplexerButton path={m.projectPath} />
           {m.id != null && (
             <FavoriteButton sessionId={m.id} initialFavorited={m.isFavorited} />

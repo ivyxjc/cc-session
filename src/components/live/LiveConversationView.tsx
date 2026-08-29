@@ -66,9 +66,13 @@ export function LiveConversationView() {
     [liveSession?.dbSessionId],
   );
 
+  // Bumped on every watched-session switch; stale responses are dropped.
+  const loadGenRef = useRef(0);
+
   // --- Initial load ---
   useEffect(() => {
     if (!watchedSessionId || !dbSessionId) return;
+    const gen = ++loadGenRef.current;
 
     setLoading(true);
 
@@ -78,21 +82,35 @@ export function LiveConversationView() {
       listSessions({ projectId: undefined, showHidden: true }).then((sessions) =>
         sessions.find((s) => s.id === dbSessionId) || null,
       ),
-    ]).then(([result, subs, session]) => {
-      const startOffset = result.totalCount - result.messages.length;
-      setMessages(result.messages);
-      setSubagents(subs);
-      setTags(session?.tags || []);
-      setDbSession(session);
-      setFirstItemIndex(startOffset);
-      earliestOffsetRef.current = startOffset;
-      hasOlderRef.current = startOffset > 0;
-      setLoading(false);
-    });
+    ])
+      .then(([result, subs, session]) => {
+        if (loadGenRef.current !== gen) return;
+        const startOffset = result.totalCount - result.messages.length;
+        setMessages(result.messages);
+        setSubagents(subs);
+        setTags(session?.tags || []);
+        setDbSession(session);
+        setFirstItemIndex(startOffset);
+        earliestOffsetRef.current = startOffset;
+        hasOlderRef.current = startOffset > 0;
+        loadingOlderRef.current = false;
+        setLoading(false);
+      })
+      .catch((e) => {
+        if (loadGenRef.current !== gen) return;
+        // Without this the view stays on "Loading live conversation..." forever.
+        console.error("Failed to load live conversation:", e);
+        setMessages([]);
+        setSubagents([]);
+        setLoading(false);
+      });
 
     watchSession(watchedSessionId).catch(console.error);
 
     return () => {
+      // Drop messages queued for the session we're leaving, or the pending
+      // batch flushes into the next session's list.
+      pendingRef.current = [];
       unwatchSession(watchedSessionId).catch(console.error);
     };
   }, [watchedSessionId, dbSessionId]);
@@ -139,17 +157,24 @@ export function LiveConversationView() {
   const handleStartReached = useCallback(() => {
     if (!dbSessionId || !hasOlderRef.current || loadingOlderRef.current) return;
     loadingOlderRef.current = true;
+    const gen = loadGenRef.current;
 
     const loadCount = Math.min(OLDER_BATCH, earliestOffsetRef.current);
     const newOffset = earliestOffsetRef.current - loadCount;
 
-    getMessages(dbSessionId, newOffset, loadCount).then((older) => {
-      setMessages((prev) => [...older, ...prev]);
-      setFirstItemIndex(newOffset);
-      earliestOffsetRef.current = newOffset;
-      hasOlderRef.current = newOffset > 0;
-      loadingOlderRef.current = false;
-    });
+    getMessages(dbSessionId, newOffset, loadCount)
+      .then((older) => {
+        if (loadGenRef.current !== gen) return;
+        setMessages((prev) => [...older, ...prev]);
+        setFirstItemIndex(newOffset);
+        earliestOffsetRef.current = newOffset;
+        hasOlderRef.current = newOffset > 0;
+        loadingOlderRef.current = false;
+      })
+      .catch((e) => {
+        console.error("Failed to load older messages:", e);
+        if (loadGenRef.current === gen) loadingOlderRef.current = false;
+      });
   }, [dbSessionId]);
 
   const locateSubagent = useCallback(async (description: string) => {

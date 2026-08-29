@@ -149,7 +149,7 @@ export function SessionHeader({ session, onRefresh }: { session: SessionSummary;
             </div>
           )}
         </div>
-        <OpenTerminalButton path={session.projectPath} sessionId={session.sessionId} />
+        <OpenTerminalButton path={session.projectPath} sessionId={session.sessionId} provider={session.provider} />
         <MultiplexerButton path={session.projectPath} />
         <FavoriteButton sessionId={session.id} initialFavorited={session.isFavorited} />
       </div>

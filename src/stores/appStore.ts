@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { ContentSearchResult, Provider } from "../lib/types";
+import { useFilterStore } from "./filterStore";
 
 type View = "projects" | "sessions" | "conversation" | "favorites" | "backups" | "settings" | "search" | "projectGroup" | "live" | "liveConversation" | "usage" | "dayPlanner";
 
@@ -40,14 +41,20 @@ export const useAppStore = create<AppState>((set) => ({
   contentSearchQuery: "",
   contentSearchResults: [],
   contentSearchError: null,
-  setProvider: (provider) => set({
-    provider,
-    view: "projects",
-    selectedProjectId: null,
-    selectedSessionId: null,
-    selectedProjectGroup: null,
-    searchQuery: "",
-  }),
+  setProvider: (provider) => {
+    // Tags live in the shared index but the selection is a filter over the
+    // list; carrying it across a provider switch silently hides sessions with
+    // no visible indication of why.
+    useFilterStore.getState().setSelectedTagId(null);
+    set({
+      provider,
+      view: "projects",
+      selectedProjectId: null,
+      selectedSessionId: null,
+      selectedProjectGroup: null,
+      searchQuery: "",
+    });
+  },
   setView: (view) => set({ view }),
   selectProject: (id) => set((s) => ({ selectedProjectId: id, selectedSessionId: null, ...(id !== null ? { view: "sessions" as View } : s.view === "sessions" || s.view === "conversation" ? { view: "sessions" as View } : {}) })),
   selectSession: (id) => set((s) => {

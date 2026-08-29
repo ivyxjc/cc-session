@@ -24,13 +24,19 @@ export function BackupManager() {
 
   const load = async () => {
     setLoading(true);
-    const [data, allSessions] = await Promise.all([
-      listBackups(),
-      listSessions({ sortBy: "time" }),
-    ]);
-    setBackups(data);
-    setSessions(allSessions);
-    setLoading(false);
+    try {
+      // Backups span providers and can belong to hidden sessions.
+      const [data, allSessions] = await Promise.all([
+        listBackups(),
+        listSessions({ sortBy: "time", showHidden: true }),
+      ]);
+      setBackups(data);
+      setSessions(allSessions);
+    } catch (e) {
+      console.error("Failed to load backups:", e);
+    } finally {
+      setLoading(false);
+    }
   };
 
   useEffect(() => { load(); }, []);
