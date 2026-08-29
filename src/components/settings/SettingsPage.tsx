@@ -5,6 +5,7 @@ import { toast } from "../../stores/toastStore";
 import {
   getBackupConfig, setBackupConfig, migrateBackups, getTerminalConfig, setTerminalConfig, testTerminalCommand,
   getMultiplexerConfig, setMultiplexerConfig, getAutoHideConfig, setAutoHideConfig,
+  getIgnoreConfig, setIgnoreConfig,
   exportSettingsToFile, importSettingsFromFile,
   getAiSummaryConfig, setAiSummaryConfig, testAiSummaryConnection, generateAiSummariesBatch,
   getLiveSessions,
@@ -19,7 +20,7 @@ import {
   TERMINAL_LINE_HEIGHT_MIN, TERMINAL_LINE_HEIGHT_MAX,
   TERMINAL_LETTER_SPACING_MIN, TERMINAL_LETTER_SPACING_MAX,
 } from "../../lib/fonts";
-import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig, AiSummaryConfig, AiSummaryProgress } from "../../lib/types";
+import type { BackupConfig, TerminalConfig, MultiplexerConfig, AutoHideConfig, IgnoreConfig, AiSummaryConfig, AiSummaryProgress } from "../../lib/types";
 
 type SettingsCategory = "appearance" | "sessions" | "backup" | "integrations" | "ai";
 
@@ -38,6 +39,8 @@ export function SettingsPage() {
   const [termConfig, setTermConfig] = useState<TerminalConfig | null>(null);
   const [muxConfig, setMuxConfig] = useState<MultiplexerConfig | null>(null);
   const [autoHideConfig, setAutoHideConfigState] = useState<AutoHideConfig | null>(null);
+  const [ignoreConfig, setIgnoreConfigState] = useState<IgnoreConfig | null>(null);
+  const [ignoreDraft, setIgnoreDraft] = useState("");
   const [locale, setLocale] = useState<string>(localStorage.getItem("locale") || "");
   const [uiFont, setUiFontState] = useState(getUiFont());
   const [codeFont, setCodeFontState] = useState(getCodeFont());
@@ -66,6 +69,7 @@ export function SettingsPage() {
     getTerminalConfig().then(setTermConfig);
     getMultiplexerConfig().then(setMuxConfig);
     getAutoHideConfig().then(setAutoHideConfigState);
+    getIgnoreConfig().then(setIgnoreConfigState);
     getAiSummaryConfig().then(setAiCfg);
   }, []);
 
@@ -111,6 +115,7 @@ export function SettingsPage() {
     if (termConfig) await setTerminalConfig(termConfig);
     if (muxConfig) await setMultiplexerConfig(muxConfig);
     if (autoHideConfig) await setAutoHideConfig(autoHideConfig);
+    if (ignoreConfig) await setIgnoreConfig(ignoreConfig);
     await setAiSummaryConfig(aiCfg);
 
     // Save fonts
@@ -134,6 +139,16 @@ export function SettingsPage() {
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
+  };
+
+  const addIgnoredPath = (raw: string) => {
+    // A trailing slash would stop the prefix from matching the project itself.
+    const path = raw.trim().replace(/\/+$/, "");
+    if (!path || !ignoreConfig) return;
+    if (!ignoreConfig.prefixes.includes(path)) {
+      setIgnoreConfigState({ prefixes: [...ignoreConfig.prefixes, path] });
+    }
+    setIgnoreDraft("");
   };
 
   if (!config) return <div className="p-6 text-zinc-500">Loading...</div>;
@@ -267,6 +282,75 @@ export function SettingsPage() {
                 min={1}
               />
               <p className="text-xs text-zinc-400 mt-1">Sessions with fewer messages will be hidden (starred sessions are always shown).</p>
+            </div>
+          )}
+
+          {ignoreConfig && (
+            <div className="pt-4 border-t border-zinc-200 dark:border-zinc-800">
+              <label className="text-sm font-medium">Ignored paths</label>
+              <p className="text-xs text-zinc-400 mt-1">
+                Projects whose path starts with one of these are hidden from every list and
+                excluded from search. Their sessions stay indexed, so removing a path brings
+                them straight back &mdash; no re-scan, and favorites and tags are kept.
+              </p>
+
+              <div className="flex gap-2 mt-2">
+                <input
+                  value={ignoreDraft}
+                  onChange={(e) => setIgnoreDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addIgnoredPath(ignoreDraft);
+                    }
+                  }}
+                  placeholder="/Users/me/scratch"
+                  spellCheck={false}
+                  className="flex-1 min-w-0 px-3 py-1.5 font-mono text-xs border border-zinc-300 dark:border-zinc-700 rounded bg-white dark:bg-zinc-800"
+                />
+                <button
+                  onClick={async () => {
+                    const dir = await open({ directory: true, multiple: false });
+                    if (typeof dir === "string") addIgnoredPath(dir);
+                  }}
+                  className="px-3 py-1.5 text-xs border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 whitespace-nowrap"
+                >
+                  Browse...
+                </button>
+                <button
+                  onClick={() => addIgnoredPath(ignoreDraft)}
+                  disabled={ignoreDraft.trim() === ""}
+                  className="px-3 py-1.5 text-xs border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-40"
+                >
+                  Add
+                </button>
+              </div>
+
+              {ignoreConfig.prefixes.length === 0 ? (
+                <p className="text-xs text-zinc-400 mt-3">Nothing ignored.</p>
+              ) : (
+                <ul className="mt-3 space-y-1">
+                  {ignoreConfig.prefixes.map((prefix) => (
+                    <li
+                      key={prefix}
+                      className="flex items-center gap-2 px-2 py-1 rounded bg-zinc-50 dark:bg-zinc-900"
+                    >
+                      <span className="flex-1 min-w-0 truncate font-mono text-xs">{prefix}</span>
+                      <button
+                        onClick={() =>
+                          setIgnoreConfigState({
+                            prefixes: ignoreConfig.prefixes.filter((p) => p !== prefix),
+                          })
+                        }
+                        title="Stop ignoring this path"
+                        className="text-xs text-zinc-400 hover:text-red-500 px-1"
+                      >
+                        Remove
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
           )}
         </section>
@@ -791,6 +875,7 @@ export function SettingsPage() {
                   getTerminalConfig().then(setTermConfig);
                   getMultiplexerConfig().then(setMuxConfig);
                   getAutoHideConfig().then(setAutoHideConfigState);
+                  getIgnoreConfig().then(setIgnoreConfigState);
                 } catch (e) {
                   toast.error(`Import failed: ${e}`);
                 }

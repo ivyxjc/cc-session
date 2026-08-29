@@ -54,6 +54,12 @@ export const toggleHideSession = (sessionId: number) =>
 export const toggleStarProject = (projectId: number) =>
   invoke<boolean>("toggle_star_project", { projectId });
 
+export const getIgnoreConfig = () =>
+  invoke<import("./types").IgnoreConfig>("get_ignore_config");
+
+export const setIgnoreConfig = (config: import("./types").IgnoreConfig) =>
+  invoke<void>("set_ignore_config", { config });
+
 export const getAutoHideConfig = () =>
   invoke<import("./types").AutoHideConfig>("get_auto_hide_config");
 
@@ -183,8 +189,13 @@ export const unwatchSession = (sessionId: string) =>
   invoke<void>("unwatch_session", { sessionId });
 
 // Content search
-export const searchMessageContent = (query: string, provider?: Provider, limit = 50) =>
-  invoke<ContentSearchResult[]>("search_message_content", { query, provider, limit });
+export const searchMessageContent = (
+  query: string,
+  provider?: Provider,
+  pathPrefix?: string,
+  limit = 50,
+) =>
+  invoke<ContentSearchResult[]>("search_message_content", { query, provider, pathPrefix, limit });
 
 // PTY (embedded multiplexer terminal)
 export const ptyAttachMultiplexer = (kind: string, name: string, cwd: string, cols: number, rows: number) =>

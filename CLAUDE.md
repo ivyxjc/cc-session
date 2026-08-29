@@ -20,6 +20,7 @@ A Tauri 2 + React + TypeScript desktop app for browsing and managing local Claud
 - Claude: `scanner` reads `~/.claude/projects/` read-only, `parser` extracts messages, `monitor` handles live tracking (Claude-only).
 - Codex: `codex/scanner` reads `~/.codex/state_5.sqlite` read-only for thread metadata and parses the rollout JSONL for counts/tokens/summary; `codex/parser` + `codex/converter` produce `ViewMessage`s. Codex `encoded_path` is the cwd itself.
 - Unified view model (`ViewMessage`/`ViewContentBlock`) — provider-specific converters produce shared types. Consumers written against Claude's raw line shape (LLM input builder, FTS indexer) get other providers projected into that shape via `sources::raw_messages`.
+- `ignore.rs` holds the user's ignored project paths (`app_config` key `ignore_config`). Ignoring is a *view* filter, not a scan filter — sessions stay indexed so un-ignoring needs no re-scan and keeps favorites/tags. Unlimited queries (`list_projects`) filter in Rust; anything with a `LIMIT` (content search) must filter in SQL, before the cap.
 - Frontend: the provider switch is a filter passed to `list_projects` / `list_sessions`; the same components render both providers.
 - Frontend uses react-virtuoso for virtualized message lists, zustand for state
 

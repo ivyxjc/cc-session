@@ -6,6 +6,13 @@ import { ProjectCard } from "../project/ProjectCard";
 import { SessionCard } from "../session/SessionCard";
 import { formatRelativeTime } from "../../lib/format";
 
+/** Long enough that a burst of typing produces one query, short enough to feel
+ *  immediate once the user stops. */
+const CONTENT_SEARCH_DEBOUNCE_MS = 250;
+
+/** Projects shown before expanding — one row at the widest grid breakpoint. */
+const PROJECT_ROW = 3;
+
 function fuzzyMatch(text: string, query: string): boolean {
   const lower = text.toLowerCase();
   const q = query.toLowerCase();
@@ -55,37 +62,63 @@ function highlightTerms(text: string, terms: string[]): string {
     .join("");
 }
 
-interface ContentGroup {
+interface SessionGroup {
   sessionDbId: number;
   sessionId: string;
   slug: string | null;
-  projectName: string;
-  projectPath: string;
   latestTimestampMs: number;
   matches: ContentSearchResult[];
 }
 
-/** Group results by session, preserving the order of first appearance (best-ranked session first) */
-function groupBySession(results: ContentSearchResult[]): ContentGroup[] {
-  const map = new Map<number, ContentGroup>();
+interface ProjectGroup {
+  projectName: string;
+  projectPath: string;
+  sessions: SessionGroup[];
+  matchCount: number;
+  latestTimestampMs: number;
+}
+
+/**
+ * Group results by project, then by session. Insertion order is preserved at
+ * both levels, so the best-ranked project comes first and within it the
+ * best-ranked session — the backend already returned the rows in rank order.
+ */
+function groupByProject(results: ContentSearchResult[]): ProjectGroup[] {
+  const projects = new Map<string, ProjectGroup>();
+  const sessions = new Map<number, SessionGroup>();
+
   for (const r of results) {
-    const g = map.get(r.sessionDbId);
-    if (g) {
-      g.matches.push(r);
-      if (r.timestampMs > g.latestTimestampMs) g.latestTimestampMs = r.timestampMs;
-    } else {
-      map.set(r.sessionDbId, {
+    let p = projects.get(r.projectPath);
+    if (!p) {
+      p = {
+        projectName: r.projectName,
+        projectPath: r.projectPath,
+        sessions: [],
+        matchCount: 0,
+        latestTimestampMs: r.timestampMs,
+      };
+      projects.set(r.projectPath, p);
+    }
+    p.matchCount++;
+    if (r.timestampMs > p.latestTimestampMs) p.latestTimestampMs = r.timestampMs;
+
+    let sess = sessions.get(r.sessionDbId);
+    if (!sess) {
+      sess = {
         sessionDbId: r.sessionDbId,
         sessionId: r.sessionId,
         slug: r.slug,
-        projectName: r.projectName,
-        projectPath: r.projectPath,
         latestTimestampMs: r.timestampMs,
-        matches: [r],
-      });
+        matches: [],
+      };
+      sessions.set(r.sessionDbId, sess);
+      p.sessions.push(sess);
     }
+    sess.matches.push(r);
+    if (r.timestampMs > sess.latestTimestampMs) sess.latestTimestampMs = r.timestampMs;
   }
-  return Array.from(map.values());
+
+  return Array.from(projects.values());
 }
 
 export function SearchResults() {
@@ -93,22 +126,46 @@ export function SearchResults() {
   const searchQuery = useAppStore((s) => s.searchQuery);
   const selectSession = useAppStore((s) => s.selectSession);
   const contentSearchQuery = useAppStore((s) => s.contentSearchQuery);
+  const contentSearchPathPrefix = useAppStore((s) => s.contentSearchPathPrefix);
   const contentResults = useAppStore((s) => s.contentSearchResults);
   const contentError = useAppStore((s) => s.contentSearchError);
   const setContentSearch = useAppStore((s) => s.setContentSearch);
+  const pathPrefix = useAppStore((s) => s.searchPathPrefix);
+  const setPathPrefix = useAppStore((s) => s.setSearchPathPrefix);
+  const scopeHistory = useAppStore((s) => s.scopeHistory);
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(false);
+  // Projects the user has folded away, by path. Absent means expanded.
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  // The scope box is edited locally and committed on Enter or blur: committing
+  // per keystroke would re-query the project and session lists on every letter.
+  const [prefixDraft, setPrefixDraft] = useState(pathPrefix);
+  useEffect(() => setPrefixDraft(pathPrefix), [pathPrefix]);
+  const [showAllProjects, setShowAllProjects] = useState(false);
 
-  // "Searched" iff the cached content-search query matches the current query and is non-empty
-  const contentSearched = contentSearchQuery !== "" && contentSearchQuery === searchQuery.trim();
+  const trimmedPrefix = pathPrefix.trim();
+
+  // "Searched" iff the cached results were taken under the current query *and*
+  // the current scope — a scope change makes them as stale as a query change.
+  const contentSearched =
+    contentSearchQuery !== "" &&
+    contentSearchQuery === searchQuery.trim() &&
+    contentSearchPathPrefix === trimmedPrefix;
 
   const groupedContentResults = useMemo(
-    () => (contentSearched ? groupBySession(contentResults) : []),
+    () => (contentSearched ? groupByProject(contentResults) : []),
     [contentSearched, contentResults],
   );
+
+  const toggleProject = (path: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(path)) next.add(path);
+      return next;
+    });
 
   useEffect(() => {
     if (!searchQuery.trim()) {
@@ -119,6 +176,7 @@ export function SearchResults() {
     }
 
     setLoading(true);
+    setShowAllProjects(false);
     const q = searchQuery.trim().toLowerCase();
     const terms = queryTerms(q);
     // Typing fast fires overlapping queries; only the newest may render.
@@ -132,8 +190,13 @@ export function SearchResults() {
         if (stale) return;
         // Subsequence matching stays for project paths, where it usefully
         // abbreviates ("wa" → "web-app").
+        const inScope = (path: string) =>
+          trimmedPrefix === "" || path.startsWith(trimmedPrefix);
+
         const matchedProjects = allProjects.filter(
-          (p) => fuzzyMatch(p.displayName, q) || fuzzyMatch(p.originalPath, q)
+          (p) =>
+            inScope(p.originalPath) &&
+            (fuzzyMatch(p.displayName, q) || fuzzyMatch(p.originalPath, q))
         );
 
         // Sessions match on everything the card actually shows — including the
@@ -141,6 +204,7 @@ export function SearchResults() {
         // term must appear somewhere, so multi-word queries work without the
         // words having to be adjacent.
         const matchedSessions = allSessions.filter((s) => {
+          if (!inScope(s.projectPath)) return false;
           if (s.sessionId.toLowerCase().startsWith(q)) return true;
           const haystack = [s.summary, s.slug, s.projectName, ...s.aiTags]
             .filter(Boolean)
@@ -162,23 +226,46 @@ export function SearchResults() {
       });
 
     return () => { stale = true; };
-  }, [provider, searchQuery]);
+  }, [provider, searchQuery, trimmedPrefix]);
 
-  const runContentSearch = async () => {
+  // Content search runs on its own. It is debounced because it is the expensive
+  // half: a keystroke-per-query would hit FTS over the whole index each letter.
+  // `contentSearched` in the deps makes this a no-op once the store already
+  // holds results for this query and scope, including when returning from a
+  // conversation.
+  useEffect(() => {
     const q = searchQuery.trim();
-    if (!q) return;
-    setContentLoading(true);
-    try {
-      const results = await searchMessageContent(q, provider, 50);
-      setContentSearch(q, results, null);
-    } catch (e) {
-      setContentSearch(q, [], String(e));
-    } finally {
+    if (!q) {
       setContentLoading(false);
+      return;
     }
-  };
+    if (contentSearched) {
+      setContentLoading(false);
+      return;
+    }
 
-  if (loading) {
+    let stale = false;
+    setContentLoading(true);
+    const timer = setTimeout(() => {
+      searchMessageContent(q, provider, trimmedPrefix, 50)
+        .then((results) => {
+          if (!stale) setContentSearch(q, trimmedPrefix, results, null);
+        })
+        .catch((e) => {
+          if (!stale) setContentSearch(q, trimmedPrefix, [], String(e));
+        })
+        .finally(() => {
+          if (!stale) setContentLoading(false);
+        });
+    }, CONTENT_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      stale = true;
+      clearTimeout(timer);
+    };
+  }, [provider, searchQuery, trimmedPrefix, contentSearched, setContentSearch]);
+
+  if (loading && projects.length === 0 && sessions.length === 0) {
     return <div className="p-6 text-zinc-500">Searching...</div>;
   }
 
@@ -194,27 +281,63 @@ export function SearchResults() {
         <h1 className="text-xl font-semibold">
           Search: "{searchQuery}"
         </h1>
-        <button
-          onClick={runContentSearch}
-          disabled={contentLoading}
-          className="text-xs px-2 py-1 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 disabled:opacity-50"
-        >
-          {contentLoading ? "Searching..." : contentSearched ? "Search content again" : "Search content"}
-        </button>
-        {contentSearched && !contentLoading && (
-          <span className="text-xs text-zinc-400">
-            {contentResults.length} content match{contentResults.length === 1 ? "" : "es"}
-          </span>
+        <span className="text-xs text-zinc-400">
+          {contentLoading
+            ? "Searching content..."
+            : contentSearched
+              ? `${contentResults.length} content match${contentResults.length === 1 ? "" : "es"}`
+              : ""}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2 mb-4 text-xs">
+        <span className="text-zinc-500 whitespace-nowrap">Scope</span>
+        <input
+          value={prefixDraft}
+          onChange={(e) => setPrefixDraft(e.target.value)}
+          onBlur={() => setPathPrefix(prefixDraft)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") setPathPrefix(prefixDraft);
+            if (e.key === "Escape") setPrefixDraft(pathPrefix);
+          }}
+          placeholder="Limit to a path prefix, e.g. /Users/me/work"
+          spellCheck={false}
+          list="search-scope-history"
+          className="flex-1 min-w-0 px-2 py-1 font-mono rounded border border-zinc-300 dark:border-zinc-700 bg-transparent placeholder:text-zinc-400 focus:outline-none focus:border-zinc-500"
+        />
+        <datalist id="search-scope-history">
+          {scopeHistory.map((h) => (
+            <option key={h} value={h} />
+          ))}
+        </datalist>
+        {trimmedPrefix !== "" && (
+          <button
+            onClick={() => setPathPrefix("")}
+            className="px-2 py-1 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800 whitespace-nowrap"
+          >
+            Clear
+          </button>
         )}
       </div>
 
       {projects.length > 0 && (
         <div className="mb-6">
-          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide mb-2">
-            Projects ({projects.length})
+          <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide mb-2 flex items-center gap-2">
+            <span>Projects ({projects.length})</span>
+            {/* Project cards are tall; a broad query can push the message hits,
+                which are the point of the page, off the bottom of the screen. */}
+            {projects.length > PROJECT_ROW && (
+              <button
+                onClick={() => setShowAllProjects((v) => !v)}
+                aria-expanded={showAllProjects}
+                className="normal-case tracking-normal font-normal text-xs px-1.5 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                {showAllProjects ? "Show less" : `Show all ${projects.length}`}
+              </button>
+            )}
           </h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {projects.map((p) => (
+            {(showAllProjects ? projects : projects.slice(0, PROJECT_ROW)).map((p) => (
               <ProjectCard key={p.id} project={p} />
             ))}
           </div>
@@ -239,72 +362,108 @@ export function SearchResults() {
       )}
 
       {contentSearched && !contentLoading && contentResults.length === 0 && !contentError && (
-        <div className="text-zinc-500 text-sm mb-6">No content matches.</div>
+        <div className="text-zinc-500 text-sm mb-6">
+          No content matches
+          {trimmedPrefix !== "" && <> under <span className="font-mono">{trimmedPrefix}</span></>}.
+        </div>
       )}
 
       {contentResults.length > 0 && (
         <div className="mb-6">
           <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wide mb-2">
-            Message content ({contentResults.length} match{contentResults.length === 1 ? "" : "es"} in {groupedContentResults.length} session{groupedContentResults.length === 1 ? "" : "s"})
+            Message content ({contentResults.length} match{contentResults.length === 1 ? "" : "es"} in {groupedContentResults.length} project{groupedContentResults.length === 1 ? "" : "s"})
           </h2>
           <div className="space-y-3">
-            {groupedContentResults.map((group) => (
-              <div
-                key={group.sessionDbId}
-                className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden"
-              >
-                <button
-                  onClick={() => selectSession(group.sessionDbId)}
-                  className="w-full text-left px-3 py-2 bg-zinc-50 dark:bg-zinc-900 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors border-b border-zinc-200 dark:border-zinc-800"
+            {groupedContentResults.map((project) => {
+              const isCollapsed = collapsed.has(project.projectPath);
+              return (
+                <div
+                  key={project.projectPath}
+                  className="border border-zinc-200 dark:border-zinc-800 rounded-lg overflow-hidden"
                 >
-                  <div className="flex items-center gap-2 text-xs">
-                    <span className="font-medium text-zinc-700 dark:text-zinc-300 truncate">
-                      {group.projectName}
-                    </span>
-                    <span className="text-zinc-400 font-mono">
-                      {group.slug || group.sessionId.slice(0, 8)}
-                    </span>
-                    <span className="text-zinc-400 truncate">{group.projectPath}</span>
-                    <span className="ml-auto text-zinc-500 whitespace-nowrap">
-                      {group.matches.length} match{group.matches.length === 1 ? "" : "es"} · {formatRelativeTime(group.latestTimestampMs)}
-                    </span>
-                  </div>
-                </button>
-                <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-                  {group.matches.map((r) => (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-zinc-100 dark:bg-zinc-900 border-b border-zinc-200 dark:border-zinc-800">
                     <button
-                      key={r.messageUuid + r.timestampMs}
-                      onClick={() => selectSession(r.sessionDbId)}
-                      className="w-full text-left block px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
+                      onClick={() => toggleProject(project.projectPath)}
+                      className="flex items-center gap-2 min-w-0 flex-1 text-left hover:opacity-80"
+                      aria-expanded={!isCollapsed}
                     >
-                      <div className="flex items-center gap-2 text-xs text-zinc-500 mb-1">
-                        <span className={`px-1.5 py-0.5 rounded font-mono ${
-                          r.role === "assistant" ? "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400" :
-                          r.role === "thinking" ? "bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-400" :
-                          "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
-                        }`}>
-                          {r.role}
-                        </span>
-                        <span className="ml-auto whitespace-nowrap">{formatRelativeTime(r.timestampMs)}</span>
-                      </div>
-                      <div
-                        className="text-sm text-zinc-700 dark:text-zinc-300 leading-snug whitespace-pre-wrap break-words"
-                        dangerouslySetInnerHTML={{
-                          __html: highlightTerms(r.snippet, queryTerms(contentSearchQuery)),
-                        }}
-                      />
+                      <span className="text-zinc-400 w-3 shrink-0">{isCollapsed ? "\u25b8" : "\u25be"}</span>
+                      <span className="text-sm font-medium text-zinc-800 dark:text-zinc-200 truncate">
+                        {project.projectName}
+                      </span>
+                      <span className="text-xs text-zinc-400 font-mono truncate">
+                        {project.projectPath}
+                      </span>
                     </button>
+                    <span className="text-xs text-zinc-500 whitespace-nowrap">
+                      {project.matchCount} match{project.matchCount === 1 ? "" : "es"} · {project.sessions.length} session{project.sessions.length === 1 ? "" : "s"}
+                    </span>
+                    {/* Re-runs the search scoped to this project rather than
+                        filtering what is already on screen: the result set is
+                        capped by rank, so this can surface hits the unscoped
+                        query never had room to return. */}
+                    <button
+                      onClick={() => setPathPrefix(project.projectPath)}
+                      title="Search only this project"
+                      className="text-xs px-1.5 py-0.5 border border-zinc-300 dark:border-zinc-700 rounded hover:bg-zinc-200 dark:hover:bg-zinc-800 whitespace-nowrap"
+                    >
+                      Only this
+                    </button>
+                  </div>
+
+                  {!isCollapsed && project.sessions.map((group) => (
+                    <div key={group.sessionDbId} className="border-b border-zinc-200 dark:border-zinc-800 last:border-b-0">
+                      <button
+                        onClick={() => selectSession(group.sessionDbId)}
+                        className="w-full text-left px-3 py-2 bg-zinc-50 dark:bg-zinc-900/50 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                      >
+                        <div className="flex items-center gap-2 text-xs">
+                          <span className="text-zinc-600 dark:text-zinc-300 truncate">
+                            {group.slug || group.sessionId.slice(0, 8)}
+                          </span>
+                          <span className="ml-auto text-zinc-500 whitespace-nowrap">
+                            {group.matches.length} match{group.matches.length === 1 ? "" : "es"} · {formatRelativeTime(group.latestTimestampMs)}
+                          </span>
+                        </div>
+                      </button>
+                      <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                        {group.matches.map((r) => (
+                          <button
+                            key={r.messageUuid + r.timestampMs}
+                            onClick={() => selectSession(r.sessionDbId)}
+                            className="w-full text-left block px-3 py-2 hover:bg-zinc-50 dark:hover:bg-zinc-900 transition-colors"
+                          >
+                            <div className="flex items-center gap-2 text-xs text-zinc-500 mb-1">
+                              <span className={`px-1.5 py-0.5 rounded font-mono ${
+                                r.role === "assistant" ? "bg-blue-50 text-blue-600 dark:bg-blue-950 dark:text-blue-400" :
+                                r.role === "thinking" ? "bg-purple-50 text-purple-600 dark:bg-purple-950 dark:text-purple-400" :
+                                "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                              }`}>
+                                {r.role}
+                              </span>
+                              <span className="ml-auto whitespace-nowrap">{formatRelativeTime(r.timestampMs)}</span>
+                            </div>
+                            <div
+                              className="text-sm text-zinc-700 dark:text-zinc-300 leading-snug whitespace-pre-wrap break-words"
+                              dangerouslySetInnerHTML={{
+                                __html: highlightTerms(r.snippet, queryTerms(contentSearchQuery)),
+                              }}
+                            />
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   ))}
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
 
       {!hasMetaResults && contentResults.length === 0 && !contentLoading && (
         <div className="text-zinc-500 text-sm">
-          {contentSearched ? "No results found." : "No project/session matches. Try \"Search content\" to look inside messages."}
+          {contentLoading ? "Searching..." : "No results found."}
         </div>
       )}
     </div>

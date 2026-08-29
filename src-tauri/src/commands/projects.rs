@@ -45,9 +45,14 @@ pub fn list_projects(
         Some(p) => stmt.query_map(params![p], map_row),
         None => stmt.query_map([], map_row),
     };
+    // Filtered here rather than in SQL: this query is unlimited, so dropping
+    // rows afterwards loses nothing. (Content search cannot do the same — it is
+    // capped by rank, so its filter has to run before the cap.)
+    let ignored = crate::ignore::prefixes(&conn);
     let projects = rows
         .map_err(|e| format!("DB error: {}", e))?
         .filter_map(|r| r.ok())
+        .filter(|p: &Project| !crate::ignore::is_ignored(&p.original_path, &ignored))
         .collect();
 
     Ok(projects)

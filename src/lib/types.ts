@@ -128,6 +128,11 @@ export interface LatestMessagesResult {
   totalCount: number;
 }
 
+export interface IgnoreConfig {
+  /** Project paths starting with any of these are hidden everywhere. */
+  prefixes: string[];
+}
+
 export interface AutoHideConfig {
   enabled: boolean;
   minMessageCount: number;

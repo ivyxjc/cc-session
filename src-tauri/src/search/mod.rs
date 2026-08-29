@@ -248,6 +248,46 @@ const AGE_PENALTY_CAP: f64 = 3.0;
 /// appear together that row still outranks one where they are merely scattered.
 const PHRASE_BONUS: f64 = -2.0;
 
+/// LIKE treats `%`, `_` and the escape character itself as syntax; a project
+/// path containing any of them must still match literally.
+fn escape_like(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
+/// A LIKE pattern matching everything under `prefix`, with the prefix itself
+/// taken literally.
+pub fn like_prefix_pattern(prefix: &str) -> String {
+    format!("{}%", escape_like(prefix))
+}
+
+/// A blank prefix means "no filter" rather than "match everything", so that an
+/// empty input box does not turn into a pattern.
+fn prefix_pattern(prefix: Option<&str>) -> Option<String> {
+    let p = prefix?.trim();
+    if p.is_empty() {
+        return None;
+    }
+    Some(like_prefix_pattern(p))
+}
+
+/// `NOT LIKE` conditions excluding every ignored project, numbered from
+/// `next_param`. Returned alongside the values so callers can append both to
+/// their own parameter list.
+fn ignore_conditions(conn: &Connection, next_param: usize) -> (String, Vec<String>) {
+    let mut sql = String::new();
+    let mut values = Vec::new();
+    for prefix in crate::ignore::prefixes(conn) {
+        values.push(like_prefix_pattern(&prefix));
+        sql.push_str(&format!(
+            "\n          AND p.original_path NOT LIKE ?{} ESCAPE '\\'",
+            next_param + values.len() - 1
+        ));
+    }
+    (sql, values)
+}
+
 /// The trigram index cannot match anything shorter than 3 characters, so terms
 /// below that would silently reduce an AND query to zero rows.
 fn indexable_terms(query: &str) -> Vec<&str> {
@@ -263,21 +303,28 @@ fn indexable_terms(query: &str) -> Vec<&str> {
 /// "terminal pane" should find sessions discussing both, not only the ones
 /// where the words happen to be adjacent. `provider` of `None` searches every
 /// provider.
+///
+/// `path_prefix` narrows to projects whose original path starts with it. It is
+/// applied in SQL rather than by the caller because `limit` truncates by rank
+/// first: filtering the returned rows would search the whole index and then
+/// discard most of the scope's hits.
 pub fn search_messages(
     conn: &Connection,
     query: &str,
     provider: Option<Provider>,
+    path_prefix: Option<&str>,
     limit: usize,
 ) -> Result<Vec<ContentSearchResult>, String> {
     let q = query.trim();
     if q.is_empty() {
         return Ok(Vec::new());
     }
+    let path_pattern = prefix_pattern(path_prefix);
 
     // Nothing the trigram index can match (e.g. a two-character CJK word).
     let terms = indexable_terms(q);
     let Some(first_term) = terms.first().copied() else {
-        return search_messages_like(conn, q, provider, limit);
+        return search_messages_like(conn, q, provider, path_prefix, limit);
     };
 
     // Quote every term so FTS5 reads none of them as an operator (AND/OR/NOT).
@@ -290,6 +337,7 @@ pub fn search_messages(
     let now_ms = chrono::Utc::now().timestamp_millis();
     // Linear decay: every 30 days adds +1 to bm25 (worse rank, since smaller = better)
     let decay_per_ms: f64 = 1.0 / (30.0 * 86_400_000.0);
+    let (ignore_sql, ignore_values) = ignore_conditions(conn, 9);
 
     let sql = format!("
         SELECT
@@ -310,17 +358,34 @@ pub fn search_messages(
         JOIN projects p ON p.id = s.project_id
         WHERE messages_fts MATCH ?1
           AND (?7 IS NULL OR s.provider = ?7)
+          AND (?8 IS NULL OR p.original_path LIKE ?8 ESCAPE '\\'){ignored}
         ORDER BY weighted ASC
         LIMIT ?4
-    ", lead = SNIPPET_LEAD, chars = SNIPPET_CHARS, cap = AGE_PENALTY_CAP, bonus = PHRASE_BONUS);
+    ", lead = SNIPPET_LEAD, chars = SNIPPET_CHARS, cap = AGE_PENALTY_CAP, bonus = PHRASE_BONUS, ignored = ignore_sql);
 
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| format!("FTS query prepare error: {}", e))?;
 
+    let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+        Box::new(match_expr),
+        Box::new(now_ms),
+        Box::new(decay_per_ms),
+        Box::new(limit as i64),
+        Box::new(first_term.to_string()),
+        Box::new(q.to_string()),
+        Box::new(provider),
+        Box::new(path_pattern),
+    ];
+    values.extend(
+        ignore_values
+            .into_iter()
+            .map(|v| Box::new(v) as Box<dyn rusqlite::types::ToSql>),
+    );
+
     let rows = stmt
         .query_map(
-            params![match_expr, now_ms, decay_per_ms, limit as i64, first_term, q, provider],
+            rusqlite::params_from_iter(values.iter().map(|v| v.as_ref())),
             |row| {
                 Ok(ContentSearchResult {
                     session_db_id: row.get(0)?,
@@ -346,9 +411,12 @@ fn search_messages_like(
     conn: &Connection,
     q: &str,
     provider: Option<Provider>,
+    path_prefix: Option<&str>,
     limit: usize,
 ) -> Result<Vec<ContentSearchResult>, String> {
-    let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
+    let pattern = format!("%{}%", escape_like(q));
+    let path_pattern = prefix_pattern(path_prefix);
+    let (ignore_sql, ignore_values) = ignore_conditions(conn, 6);
     let sql = format!("
         SELECT
             f.session_db_id,
@@ -365,14 +433,28 @@ fn search_messages_like(
         JOIN projects p ON p.id = s.project_id
         WHERE f.content LIKE ?2 ESCAPE '\\'
           AND (?4 IS NULL OR s.provider = ?4)
+          AND (?5 IS NULL OR p.original_path LIKE ?5 ESCAPE '\\'){ignored}
         ORDER BY f.timestamp_ms DESC
         LIMIT ?3
-    ", lead = SNIPPET_LEAD, chars = SNIPPET_CHARS);
+    ", lead = SNIPPET_LEAD, chars = SNIPPET_CHARS, ignored = ignore_sql);
     let mut stmt = conn
         .prepare(&sql)
         .map_err(|e| format!("LIKE query prepare error: {}", e))?;
+    let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+        Box::new(q.to_string()),
+        Box::new(pattern),
+        Box::new(limit as i64),
+        Box::new(provider),
+        Box::new(path_pattern),
+    ];
+    values.extend(
+        ignore_values
+            .into_iter()
+            .map(|v| Box::new(v) as Box<dyn rusqlite::types::ToSql>),
+    );
+
     let rows = stmt
-        .query_map(params![q, pattern, limit as i64, provider], |row| {
+        .query_map(rusqlite::params_from_iter(values.iter().map(|v| v.as_ref())), |row| {
             Ok(ContentSearchResult {
                 session_db_id: row.get(0)?,
                 session_id: row.get(1)?,
@@ -403,17 +485,24 @@ mod tests {
                 content, session_db_id UNINDEXED, message_uuid UNINDEXED,
                 role UNINDEXED, timestamp_ms UNINDEXED, tokenize = 'trigram');
              INSERT INTO projects VALUES (1, 'claude', 'proj', '/tmp/proj');
-             INSERT INTO sessions VALUES (1, 'claude', 's1', 'slug', 1);",
+             INSERT INTO sessions VALUES (1, 'claude', 's1', 'slug', 1);
+             INSERT INTO projects VALUES (2, 'claude', 'other', '/tmp/other');
+             INSERT INTO sessions VALUES (2, 'claude', 's2', 'slug2', 2);
+             CREATE TABLE app_config (key TEXT PRIMARY KEY, value TEXT);",
         )
         .unwrap();
         conn
     }
 
     fn add(conn: &Connection, uuid: &str, content: &str, ts: i64) {
+        add_to(conn, 1, uuid, content, ts);
+    }
+
+    fn add_to(conn: &Connection, session: i64, uuid: &str, content: &str, ts: i64) {
         conn.execute(
             "INSERT INTO messages_fts (content, session_db_id, message_uuid, role, timestamp_ms)
-             VALUES (?1, 1, ?2, 'user', ?3)",
-            params![content, uuid, ts],
+             VALUES (?1, ?4, ?2, 'user', ?3)",
+            params![content, uuid, ts, session],
         )
         .unwrap();
     }
@@ -433,7 +522,7 @@ mod tests {
         add(&conn, "adjacent", "the terminal pane is broken", now());
         add(&conn, "neither", "completely unrelated text here", now());
 
-        let hits = search_messages(&conn, "terminal pane", None, 10).unwrap();
+        let hits = search_messages(&conn, "terminal pane", None, None, 10).unwrap();
         // A literal-phrase query would only have found "adjacent".
         assert_eq!(hits.len(), 2);
         assert!(uuids(&hits).contains(&"scattered"));
@@ -445,7 +534,7 @@ mod tests {
         add(&conn, "scattered", "the terminal froze while resizing the pane", now());
         add(&conn, "adjacent", "the terminal pane is broken", now());
 
-        let hits = search_messages(&conn, "terminal pane", None, 10).unwrap();
+        let hits = search_messages(&conn, "terminal pane", None, None, 10).unwrap();
         assert_eq!(hits[0].message_uuid, "adjacent");
     }
 
@@ -456,7 +545,7 @@ mod tests {
         add(&conn, "old-strong", "terminal pane", year_ago);
         add(&conn, "new-weak", &format!("terminal {}", "filler word ".repeat(200)), now());
 
-        let hits = search_messages(&conn, "terminal pane", None, 10).unwrap();
+        let hits = search_messages(&conn, "terminal pane", None, None, 10).unwrap();
         // Uncapped linear decay reached +12 over a year and buried this.
         assert_eq!(hits[0].message_uuid, "old-strong");
     }
@@ -467,7 +556,7 @@ mod tests {
         add(&conn, "cjk", "重构了终端面板的渲染逻辑", now());
 
         // "终端" is two characters — the trigram index cannot match it.
-        let hits = search_messages(&conn, "终端", None, 10).unwrap();
+        let hits = search_messages(&conn, "终端", None, None, 10).unwrap();
         assert_eq!(uuids(&hits), vec!["cjk"]);
     }
 
@@ -477,7 +566,7 @@ mod tests {
         let filler = "x".repeat(400);
         add(&conn, "long", &format!("{} terminal pane {}", filler, filler), now());
 
-        let hits = search_messages(&conn, "terminal", None, 10).unwrap();
+        let hits = search_messages(&conn, "terminal", None, None, 10).unwrap();
         // FTS5's own snippet() yields ~30 chars under the trigram tokenizer.
         assert!(hits[0].snippet.chars().count() > 200, "got {:?}", hits[0].snippet);
         assert!(hits[0].snippet.contains("terminal"));
@@ -513,4 +602,113 @@ mod tests {
         let huge = serde_json::json!({"type": "tool_result", "content": "y".repeat(TOOL_OUTPUT_MAX * 2)});
         assert_eq!(tool_result_text(&huge).unwrap().chars().count(), TOOL_OUTPUT_MAX);
     }
+
+    #[test]
+    fn path_prefix_narrows_to_matching_projects() {
+        let conn = test_db();
+        add_to(&conn, 1, "in-scope", "the scanner walks the tree", now());
+        add_to(&conn, 2, "out-of-scope", "the scanner walks the tree", now());
+
+        let all = search_messages(&conn, "scanner", None, None, 10).unwrap();
+        assert_eq!(all.len(), 2, "unfiltered search sees both projects");
+
+        let scoped = search_messages(&conn, "scanner", None, Some("/tmp/proj"), 10).unwrap();
+        assert_eq!(uuids(&scoped), vec!["in-scope"]);
+    }
+
+    #[test]
+    fn path_prefix_is_a_prefix_not_a_substring() {
+        let conn = test_db();
+        add_to(&conn, 2, "hit", "the scanner walks", now());
+
+        // "/tmp/other" ends with "ther" but does not start with it.
+        let scoped = search_messages(&conn, "scanner", None, Some("ther"), 10).unwrap();
+        assert!(scoped.is_empty(), "a prefix must anchor at the start of the path");
+    }
+
+    #[test]
+    fn a_blank_prefix_does_not_filter() {
+        let conn = test_db();
+        add_to(&conn, 1, "a", "the scanner walks", now());
+        add_to(&conn, 2, "b", "the scanner walks", now());
+
+        assert_eq!(search_messages(&conn, "scanner", None, Some("   "), 10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn path_prefix_applies_to_the_short_query_fallback() {
+        let conn = test_db();
+        add_to(&conn, 1, "in-scope", "终端很好", now());
+        add_to(&conn, 2, "out-of-scope", "终端很好", now());
+
+        // Two CJK characters fall below the trigram minimum and take the LIKE path.
+        let scoped = search_messages(&conn, "终端", None, Some("/tmp/proj"), 10).unwrap();
+        assert_eq!(uuids(&scoped), vec!["in-scope"]);
+    }
+
+    #[test]
+    fn a_prefix_containing_like_wildcards_matches_literally() {
+        let conn = test_db();
+        conn.execute(
+            "INSERT INTO projects VALUES (3, 'claude', 'odd', '/tmp/100%_real')",
+            [],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO sessions VALUES (3, 'claude', 's3', 'slug3', 3)",
+            [],
+        )
+        .unwrap();
+        add_to(&conn, 3, "literal", "the scanner walks", now());
+        add_to(&conn, 1, "elsewhere", "the scanner walks", now());
+
+        let scoped = search_messages(&conn, "scanner", None, Some("/tmp/100%_"), 10).unwrap();
+        assert_eq!(uuids(&scoped), vec!["literal"], "% and _ must not act as wildcards");
+    }
+
+
+    #[test]
+    fn ignored_projects_are_excluded_from_results() {
+        let conn = test_db();
+        add_to(&conn, 1, "kept", "the scanner walks the tree", now());
+        add_to(&conn, 2, "ignored", "the scanner walks the tree", now());
+        crate::ignore::write_config(
+            &conn,
+            &crate::ignore::IgnoreConfig { prefixes: vec!["/tmp/other".to_string()] },
+        )
+        .unwrap();
+
+        let hits = search_messages(&conn, "scanner", None, None, 10).unwrap();
+        assert_eq!(uuids(&hits), vec!["kept"]);
+    }
+
+    #[test]
+    fn ignored_projects_are_excluded_from_the_short_query_fallback() {
+        let conn = test_db();
+        add_to(&conn, 1, "kept", "终端很好", now());
+        add_to(&conn, 2, "ignored", "终端很好", now());
+        crate::ignore::write_config(
+            &conn,
+            &crate::ignore::IgnoreConfig { prefixes: vec!["/tmp/other".to_string()] },
+        )
+        .unwrap();
+
+        let hits = search_messages(&conn, "终端", None, None, 10).unwrap();
+        assert_eq!(uuids(&hits), vec!["kept"]);
+    }
+
+    #[test]
+    fn an_ignored_project_is_excluded_even_when_the_scope_points_at_it() {
+        let conn = test_db();
+        add_to(&conn, 2, "ignored", "the scanner walks", now());
+        crate::ignore::write_config(
+            &conn,
+            &crate::ignore::IgnoreConfig { prefixes: vec!["/tmp/other".to_string()] },
+        )
+        .unwrap();
+
+        let hits = search_messages(&conn, "scanner", None, Some("/tmp/other"), 10).unwrap();
+        assert!(hits.is_empty(), "ignoring wins over an explicit scope");
+    }
+
 }

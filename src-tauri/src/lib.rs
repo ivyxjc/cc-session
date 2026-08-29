@@ -10,6 +10,7 @@ mod claude;
 mod codex;
 mod sources;
 mod search;
+mod ignore;
 mod llm;
 mod pty;
 
@@ -82,6 +83,8 @@ pub fn run() {
             commands::usage::get_daily_usage,
             commands::export::export_session,
             commands::search::search_message_content,
+            commands::ignore::get_ignore_config,
+            commands::ignore::set_ignore_config,
             commands::ai_summary::get_ai_summary_config,
             commands::ai_summary::set_ai_summary_config,
             commands::ai_summary::test_ai_summary_connection,

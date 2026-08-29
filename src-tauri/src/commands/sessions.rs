@@ -58,6 +58,16 @@ pub fn list_sessions(
         }
     }
 
+    // Ignored projects are excluded in SQL so their sessions never reach the
+    // per-row tag lookups below.
+    for prefix in crate::ignore::prefixes(&conn) {
+        conditions.push(format!(
+            "p.original_path NOT LIKE ?{} ESCAPE '\\'",
+            param_values.len() + 1
+        ));
+        param_values.push(Box::new(crate::search::like_prefix_pattern(&prefix)));
+    }
+
     let where_clause = if conditions.is_empty() {
         String::new()
     } else {
