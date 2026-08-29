@@ -1,7 +1,7 @@
 import { memo } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import type { ViewMessage, ViewContentBlock, SubagentSummary } from "../../lib/types";
+import type { ViewMessage, ViewContentBlock, SubagentSummary, Provider } from "../../lib/types";
 import type { ToolResult } from "../../lib/toolResults";
 import { ThinkingBlock } from "./ThinkingBlock";
 import { ToolCallBlock } from "./ToolCallBlock";
@@ -175,9 +175,11 @@ interface Props {
   message: ViewMessage;
   subagents?: SubagentSummary[];
   toolResults?: Map<string, ToolResult>;
+  /** Names the assistant. Defaults to Claude for callers that render Claude-only data. */
+  provider?: Provider;
 }
 
-export const MessageBubble = memo(function MessageBubble({ message, subagents, toolResults }: Props) {
+export const MessageBubble = memo(function MessageBubble({ message, subagents, toolResults, provider = "claude" }: Props) {
   if (message.type === "system") {
     // Skip attachment, permissionMode, fileHistorySnapshot subtypes
     if (message.subtype === "attachment" || message.subtype === "permissionMode" || message.subtype === "fileHistorySnapshot") {
@@ -215,7 +217,7 @@ export const MessageBubble = memo(function MessageBubble({ message, subagents, t
       >
         <div className="flex items-center gap-2 mb-1">
           <div className="text-xs font-medium text-zinc-500 flex-1 min-w-0 truncate">
-            {isUser ? "You" : `Claude${message.type === "assistant" && message.model ? ` (${message.model})` : ""}`}
+            {isUser ? "You" : `${provider === "codex" ? "Codex" : "Claude"}${message.type === "assistant" && message.model ? ` (${message.model})` : ""}`}
           </div>
           <MessageTime timestamp={message.timestamp} />
           <span className="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">

@@ -88,20 +88,15 @@ pub fn to_view_message(item: CodexResponseItem) -> ViewMessage {
 
 /// Project a whole Codex rollout into Claude-shaped raw JSONL objects so that
 /// consumers written against Claude's line format (LLM input builder, FTS
-/// indexer) work unchanged. Injected environment/instruction payloads are
-/// dropped — they are not user prompts.
+/// indexer) work unchanged.
 pub fn to_claude_raw(path: &std::path::Path) -> Result<Vec<serde_json::Value>, String> {
     use serde_json::json;
-    use super::parser::is_injected_user_text;
     let items = super::parser::load_messages(path, 0, usize::MAX)?;
     let mut out = Vec::with_capacity(items.len());
     for item in items {
         let value = match item {
+            // Injected environment/instruction turns are already dropped by the parser.
             CodexResponseItem::UserMessage { timestamp, texts } => {
-                let texts: Vec<String> = texts.into_iter().filter(|t| !is_injected_user_text(t)).collect();
-                if texts.is_empty() {
-                    continue;
-                }
                 json!({"type": "user", "timestamp": timestamp,
                        "message": {"content": [{"type": "text", "text": texts.join("\n")}]}})
             }

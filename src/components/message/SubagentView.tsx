@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { getSubagentMessages } from "../../lib/tauri";
-import type { ViewMessage, SubagentSummary } from "../../lib/types";
+import type { ViewMessage, SubagentSummary, Provider } from "../../lib/types";
 import { MessageBubble } from "./MessageBubble";
 
 interface Props {
   subagent: SubagentSummary;
+  /** Provider of the parent session — subagents always share it. */
+  provider?: Provider;
   onLocate?: () => void;
 }
 
-export function SubagentView({ subagent, onLocate }: Props) {
+export function SubagentView({ subagent, provider, onLocate }: Props) {
   const [expanded, setExpanded] = useState(false);
   const [messages, setMessages] = useState<ViewMessage[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -53,7 +55,7 @@ export function SubagentView({ subagent, onLocate }: Props) {
       {expanded && (
         <div className="p-3 space-y-3 max-h-96 overflow-y-auto bg-zinc-50/50 dark:bg-zinc-900/50">
           {messages.map((msg, i) => (
-            <MessageBubble key={i} message={msg} />
+            <MessageBubble key={i} message={msg} provider={provider} />
           ))}
         </div>
       )}
