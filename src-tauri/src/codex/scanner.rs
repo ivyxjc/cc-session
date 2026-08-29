@@ -19,7 +19,7 @@ pub struct CodexScanStats {
 
 /// Scan every Codex thread. Rollout paths that were seen are appended to
 /// `seen_paths` so the caller can remove orphaned rows in one pass.
-pub fn scan(conn: &Connection, seen_paths: &mut Vec<String>) -> Result<CodexScanStats, String> {
+pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<CodexScanStats, String> {
     let mut stats = CodexScanStats::default();
     let Some(codex) = db::open_codex_db()? else { return Ok(stats) };
 
@@ -34,7 +34,7 @@ pub fn scan(conn: &Connection, seen_paths: &mut Vec<String>) -> Result<CodexScan
     for thread in threads.iter().filter(|t| !children.contains(t.id.as_str())) {
         let path = Path::new(&thread.rollout_path);
         let Ok(metadata) = path.metadata() else { continue }; // rollout gone — orphan cleanup drops it
-        seen_paths.push(thread.rollout_path.clone());
+        seen_paths.insert(thread.rollout_path.clone());
 
         let project_id = match project_ids.get(thread.cwd.as_str()) {
             Some(id) => *id,
