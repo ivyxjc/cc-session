@@ -49,13 +49,30 @@ pub fn restore_session_backup(
     backup_id: i64,
 ) -> Result<(), String> {
     let conn = db.conn();
-    let (backup_path, compressed): (String, bool) = conn.query_row(
-        "SELECT backup_path, compressed FROM backups WHERE id = ?1",
+    let (provider, backup_path, compressed): (Provider, String, bool) = conn.query_row(
+        "SELECT provider, backup_path, compressed FROM backups WHERE id = ?1",
         params![backup_id],
-        |row| Ok((row.get(0)?, row.get(1)?)),
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
     ).map_err(|e| format!("Backup not found: {}", e))?;
 
-    backup::restore_backup(&backup_path, compressed)
+    if provider == Provider::Claude {
+        // Claude's target is reconstructible from the backup directory layout.
+        return backup::restore_backup(&backup_path, compressed);
+    }
+
+    // Other providers store sessions under paths the backup tree doesn't encode
+    // (Codex rollouts are date-based), so restore over the indexed file. Without
+    // a session row there is nowhere well-defined to put it.
+    let target: String = conn.query_row(
+        "SELECT s.jsonl_path FROM backups b JOIN sessions s ON b.session_id = s.id WHERE b.id = ?1",
+        params![backup_id],
+        |row| row.get(0),
+    ).map_err(|_| format!(
+        "Cannot restore this {} backup: its session is no longer indexed, so the original file location is unknown",
+        provider.as_str()
+    ))?;
+
+    backup::restore_backup_to(&backup_path, compressed, &target)
 }
 
 #[tauri::command]
@@ -136,9 +153,10 @@ pub fn get_backup_messages(
     if !path.exists() {
         return Err(format!("Backup file not found: {}", backup_path));
     }
-    // A backup is read with its origin session's provider; unknown → Claude.
+    // The provider is stored on the backup row, so this still works after the
+    // origin session has been removed from the index.
     let provider: Provider = db.conn().query_row(
-        "SELECT s.provider FROM backups b JOIN sessions s ON b.session_id = s.id WHERE b.backup_path = ?1",
+        "SELECT provider FROM backups WHERE backup_path = ?1",
         params![backup_path],
         |row| row.get(0),
     ).unwrap_or(Provider::Claude);

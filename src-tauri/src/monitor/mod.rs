@@ -235,15 +235,24 @@ impl LiveMonitor {
         }
 
         // Find the JSONL path from DB
-        let jsonl_path: String = {
+        let (provider, jsonl_path): (crate::sources::Provider, String) = {
             let conn = db.conn();
             conn.query_row(
-                "SELECT jsonl_path FROM sessions WHERE session_id = ?1",
+                "SELECT provider, jsonl_path FROM sessions WHERE session_id = ?1",
                 params![session_id],
-                |row| row.get(0),
+                |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .map_err(|e| format!("Session not found: {}", e))?
         }; // conn (MutexGuard) dropped here
+
+        // Tailing parses appended lines as Claude JSONL. For any other provider
+        // every parse would fail and the same tail would be re-read forever.
+        if provider != crate::sources::Provider::Claude {
+            return Err(format!(
+                "Live monitoring is only available for Claude sessions (this one is {})",
+                provider.as_str()
+            ));
+        }
 
         let path = PathBuf::from(&jsonl_path);
         if !path.exists() {

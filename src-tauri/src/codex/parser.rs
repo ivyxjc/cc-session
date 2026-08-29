@@ -285,9 +285,6 @@ pub fn parse_session_metadata(path: &Path) -> Result<SessionParseResult, String>
 
         match parse_event(&event) {
             Some(CodexResponseItem::UserMessage { texts, .. }) => {
-                if texts.iter().all(|t| is_injected_user_text(t)) {
-                    continue;
-                }
                 result.message_count += 1;
                 result.user_msg_count += 1;
                 if result.summary.is_none() {
@@ -344,10 +341,8 @@ pub fn extract_daily_tokens(path: &Path) -> Result<HashMap<String, DayTokens>, S
             continue;
         }
 
-        if let Some(CodexResponseItem::UserMessage { texts, .. }) = parse_event(&event) {
-            if !texts.iter().all(|t| is_injected_user_text(t)) {
-                daily.entry(date()).or_default().user_msg_count += 1;
-            }
+        if let Some(CodexResponseItem::UserMessage { .. }) = parse_event(&event) {
+            daily.entry(date()).or_default().user_msg_count += 1;
         }
     }
 
@@ -373,10 +368,19 @@ fn parse_response_item(event: &CodexEvent) -> Option<CodexResponseItem> {
                 return None;
             }
             match role {
-                "user" => Some(CodexResponseItem::UserMessage {
-                    timestamp: event.timestamp.clone(),
-                    texts,
-                }),
+                "user" => {
+                    // Codex injects environment/instruction payloads as `user`
+                    // messages. Dropping them here (rather than in each
+                    // consumer) keeps the rendered list, the message counts and
+                    // the LLM/FTS projections describing the same conversation.
+                    if texts.iter().all(|t| is_injected_user_text(t)) {
+                        return None;
+                    }
+                    Some(CodexResponseItem::UserMessage {
+                        timestamp: event.timestamp.clone(),
+                        texts,
+                    })
+                }
                 "assistant" => Some(CodexResponseItem::AssistantMessage {
                     timestamp: event.timestamp.clone(),
                     texts,
@@ -614,6 +618,17 @@ mod tests {
         assert_eq!(day.user_msg_count, 1);
         assert_eq!(day.output_tokens, 275);
         assert_eq!(day.cache_read_tokens, 11008);
+    }
+
+    #[test]
+    fn injected_context_is_dropped_from_the_rendered_list_too() {
+        let path = write_session(&[META, ENV_CTX, USER, ASSISTANT, TOKENS]);
+        let items = load_messages(&path, 0, 10).unwrap();
+        // No phantom user bubble for the injected <environment_context> turn,
+        // and the rendered count agrees with what the index recorded.
+        assert_eq!(items.len(), 2);
+        let meta = parse_session_metadata(&path).unwrap();
+        assert_eq!(meta.message_count as usize, items.len());
     }
 
     #[test]

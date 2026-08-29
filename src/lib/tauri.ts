@@ -183,8 +183,8 @@ export const unwatchSession = (sessionId: string) =>
   invoke<void>("unwatch_session", { sessionId });
 
 // Content search
-export const searchMessageContent = (query: string, limit = 50) =>
-  invoke<ContentSearchResult[]>("search_message_content", { query, limit });
+export const searchMessageContent = (query: string, provider?: Provider, limit = 50) =>
+  invoke<ContentSearchResult[]>("search_message_content", { query, provider, limit });
 
 // PTY (embedded multiplexer terminal)
 export const ptyAttachMultiplexer = (kind: string, name: string, cwd: string, cols: number, rows: number) =>

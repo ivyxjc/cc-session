@@ -363,11 +363,17 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
         ).map_err(|e| format!("DB error: {}", e))?;
     }
 
-    // Codex threads land in the same tables; a missing Codex install is not an error.
-    let codex = crate::codex::scanner::scan(&conn, &mut seen_paths)?;
-    projects_found += codex.projects_found;
-    sessions_found += codex.sessions_found;
-    sessions_updated += codex.sessions_updated;
+    // Codex threads land in the same tables; a missing Codex install is not an
+    // error. A Codex failure must not abort the scan either — Claude rows are
+    // already written and orphan cleanup below still has to run.
+    match crate::codex::scanner::scan(&conn, &mut seen_paths) {
+        Ok(codex) => {
+            projects_found += codex.projects_found;
+            sessions_found += codex.sessions_found;
+            sessions_updated += codex.sessions_updated;
+        }
+        Err(e) => eprintln!("Codex scan failed, keeping Claude results: {}", e),
+    }
 
     // Remove sessions (of any provider) whose files no longer exist
     let mut stmt = conn.prepare("SELECT id, jsonl_path FROM sessions")
