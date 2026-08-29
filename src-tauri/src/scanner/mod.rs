@@ -119,7 +119,9 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
     let mut sessions_updated: usize = 0;
     let mut sessions_removed: usize = 0;
 
-    let conn = db.conn();
+    // The connection guard is deliberately NOT held across the scan: parsing a
+    // project's JSONLs can take minutes, and every other Tauri command shares
+    // this mutex. Each write below takes the lock just long enough to run.
 
     // Track which session jsonl_paths we see on disk (set: the orphan pass
     // membership-tests every indexed row against it)
@@ -139,20 +141,23 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
         let display_name = display_name_from_path(&original_path);
 
         // Upsert project
-        conn.execute(
-            "INSERT INTO projects (provider, encoded_path, original_path, display_name, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5)
-             ON CONFLICT(encoded_path) DO UPDATE SET
-                original_path = excluded.original_path,
-                display_name = excluded.display_name",
-            params![Provider::Claude, encoded_path, original_path, display_name, chrono::Utc::now().timestamp_millis()],
-        ).map_err(|e| format!("DB error: {}", e))?;
+        let project_id: i64 = {
+            let conn = db.conn();
+            conn.execute(
+                "INSERT INTO projects (provider, encoded_path, original_path, display_name, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(encoded_path) DO UPDATE SET
+                    original_path = excluded.original_path,
+                    display_name = excluded.display_name",
+                params![Provider::Claude, encoded_path, original_path, display_name, chrono::Utc::now().timestamp_millis()],
+            ).map_err(|e| format!("DB error: {}", e))?;
 
-        let project_id: i64 = conn.query_row(
-            "SELECT id FROM projects WHERE encoded_path = ?1",
-            params![encoded_path],
-            |row| row.get(0),
-        ).map_err(|e| format!("DB error: {}", e))?;
+            conn.query_row(
+                "SELECT id FROM projects WHERE encoded_path = ?1",
+                params![encoded_path],
+                |row| row.get(0),
+            ).map_err(|e| format!("DB error: {}", e))?
+        };
 
         projects_found += 1;
 
@@ -185,7 +190,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                 .unwrap_or(0);
 
             // Check if we need to re-parse / re-index
-            let existing: Option<(i64, i64, i64)> = conn.query_row(
+            let existing: Option<(i64, i64, i64)> = db.conn().query_row(
                 "SELECT file_size, file_mtime, COALESCE(content_indexed_at, 0)
                  FROM sessions WHERE jsonl_path = ?1",
                 params![jsonl_path_str],
@@ -233,7 +238,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                     .map(|dt| dt.timestamp_millis());
 
                 let now_ms = chrono::Utc::now().timestamp_millis();
-                conn.execute(
+                db.conn().execute(
                     "INSERT INTO sessions (session_id, project_id, jsonl_path, slug, version,
                         permission_mode, git_branch, started_at, last_active,
                         message_count, user_msg_count, assistant_msg_count,
@@ -309,6 +314,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                     }
 
                     // Write to daily_token_usage table
+                    let conn = db.conn();
                     for (date, tokens) in &daily {
                         conn.execute(
                             "INSERT INTO daily_token_usage (date, session_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, user_msg_count)
@@ -327,7 +333,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                 // Scan subagents
                 let subagent_dir = project_dir.join(&session_id).join("subagents");
                 if subagent_dir.exists() {
-                    scan_subagents(&conn, &subagent_dir, &session_id)?;
+                    scan_subagents(&db.conn(), &subagent_dir, &session_id)?;
                 }
 
                 if let Some(la) = last_active {
@@ -337,8 +343,11 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
                 }
             }
 
-            // Index (or re-index) message content into FTS when stale
+            // Index (or re-index) message content into FTS when stale.
+            // The lock spans one session's indexing (it inserts as it streams),
+            // but is released between sessions so the UI stays responsive.
             if needs_index {
+                let conn = db.conn();
                 if let Ok(session_db_id) = conn.query_row(
                     "SELECT id FROM sessions WHERE jsonl_path = ?1",
                     params![jsonl_path_str],
@@ -358,7 +367,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
         }
 
         // Update project stats
-        conn.execute(
+        db.conn().execute(
             "UPDATE projects SET session_count = ?1, last_active = COALESCE(?2, last_active) WHERE id = ?3",
             params![project_session_count, project_last_active, project_id],
         ).map_err(|e| format!("DB error: {}", e))?;
@@ -367,7 +376,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
     // Codex threads land in the same tables; a missing Codex install is not an
     // error. A Codex failure must not abort the scan either — Claude rows are
     // already written and orphan cleanup below still has to run.
-    match crate::codex::scanner::scan(&conn, &mut seen_paths) {
+    match crate::codex::scanner::scan(db, &mut seen_paths) {
         Ok(codex) => {
             projects_found += codex.projects_found;
             sessions_found += codex.sessions_found;
@@ -377,6 +386,7 @@ pub fn scan_all(db: &Arc<Database>) -> Result<ScanResult, String> {
     }
 
     // Remove sessions (of any provider) whose files no longer exist
+    let conn = db.conn();
     let mut stmt = conn.prepare("SELECT id, jsonl_path FROM sessions")
         .map_err(|e| format!("DB error: {}", e))?;
     let orphans: Vec<i64> = stmt.query_map([], |row| {

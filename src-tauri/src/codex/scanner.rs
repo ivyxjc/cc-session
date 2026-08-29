@@ -4,11 +4,13 @@
 //! the heuristic summary come from the rollout JSONL, exactly like the Claude scan.
 
 use super::db::{self, ThreadRow};
+use crate::db::Database;
 use crate::search;
 use crate::sources::{self, Provider};
 use rusqlite::{params, Connection};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
+use std::sync::Arc;
 
 #[derive(Default)]
 pub struct CodexScanStats {
@@ -19,7 +21,10 @@ pub struct CodexScanStats {
 
 /// Scan every Codex thread. Rollout paths that were seen are appended to
 /// `seen_paths` so the caller can remove orphaned rows in one pass.
-pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<CodexScanStats, String> {
+///
+/// Like the Claude scan, the DB lock is taken per write rather than held for
+/// the duration — rollout parsing must not block the rest of the app.
+pub fn scan(db: &Arc<Database>, seen_paths: &mut HashSet<String>) -> Result<CodexScanStats, String> {
     let mut stats = CodexScanStats::default();
     let Some(codex) = db::open_codex_db()? else { return Ok(stats) };
 
@@ -39,7 +44,7 @@ pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<Codex
         let project_id = match project_ids.get(thread.cwd.as_str()) {
             Some(id) => *id,
             None => {
-                let id = upsert_project(conn, &thread.cwd, now_ms)?;
+                let id = upsert_project(&db.conn(), &thread.cwd, now_ms)?;
                 project_ids.insert(thread.cwd.as_str(), id);
                 stats.projects_found += 1;
                 id
@@ -51,7 +56,7 @@ pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<Codex
             .map(|t| t.duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as i64)
             .unwrap_or(0);
 
-        let existing: Option<(i64, i64, i64)> = conn.query_row(
+        let existing: Option<(i64, i64, i64)> = db.conn().query_row(
             "SELECT file_size, file_mtime, COALESCE(content_indexed_at, 0) FROM sessions WHERE jsonl_path = ?1",
             params![thread.rollout_path],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
@@ -75,7 +80,7 @@ pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<Codex
                 .map(String::from)
                 .or(parsed.summary);
 
-            conn.execute(
+            db.conn().execute(
                 "INSERT INTO sessions (provider, session_id, project_id, jsonl_path, version,
                     permission_mode, git_branch, started_at, last_active,
                     message_count, user_msg_count, assistant_msg_count,
@@ -124,6 +129,7 @@ pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<Codex
             stats.sessions_updated += 1;
 
             if let Ok(daily) = sources::extract_daily_tokens(Provider::Codex, path) {
+                let conn = db.conn();
                 for (date, tokens) in &daily {
                     conn.execute(
                         "INSERT INTO daily_token_usage (date, session_id, input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, user_msg_count)
@@ -140,17 +146,18 @@ pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<Codex
             }
 
             if let Some(child_ids) = edges.get(&thread.id) {
-                sync_subagents(conn, &thread.id, child_ids, &by_id, now_ms)?;
+                sync_subagents(&db.conn(), &thread.id, child_ids, &by_id, now_ms)?;
             }
         }
 
         if needs_index {
+            let conn = db.conn();
             if let Ok(session_db_id) = conn.query_row(
                 "SELECT id FROM sessions WHERE jsonl_path = ?1",
                 params![thread.rollout_path],
                 |row| row.get::<_, i64>(0),
             ) {
-                if search::index_session_content(conn, session_db_id, Provider::Codex, path).is_ok() {
+                if search::index_session_content(&conn, session_db_id, Provider::Codex, path).is_ok() {
                     let _ = conn.execute(
                         "UPDATE sessions SET content_indexed_at = ?1 WHERE id = ?2",
                         params![file_mtime, session_db_id],
@@ -163,7 +170,7 @@ pub fn scan(conn: &Connection, seen_paths: &mut HashSet<String>) -> Result<Codex
     }
 
     // Project stats derive from the sessions actually indexed.
-    conn.execute(
+    db.conn().execute(
         "UPDATE projects SET
             session_count = (SELECT COUNT(*) FROM sessions s WHERE s.project_id = projects.id),
             last_active   = (SELECT MAX(last_active) FROM sessions s WHERE s.project_id = projects.id)
