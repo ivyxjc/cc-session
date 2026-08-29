@@ -1,6 +1,6 @@
 pub mod models;
 
-use rusqlite::{Connection, Result};
+use rusqlite::{params, Connection, Result};
 use std::path::PathBuf;
 use std::sync::Mutex;
 
@@ -192,6 +192,26 @@ impl Database {
             [],
         );
         let _ = conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_provider ON sessions(provider, last_active DESC)", []);
+
+        // Rebuild the content index when what we index has changed.
+        let stored: i64 = conn
+            .query_row(
+                "SELECT value FROM app_config WHERE key = 'fts_schema_version'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        if stored != crate::search::FTS_SCHEMA_VERSION {
+            let _ = conn.execute("DELETE FROM messages_fts", []);
+            let _ = conn.execute("UPDATE sessions SET content_indexed_at = 0", []);
+            let _ = conn.execute(
+                "INSERT INTO app_config (key, value) VALUES ('fts_schema_version', ?1)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![crate::search::FTS_SCHEMA_VERSION.to_string()],
+            );
+        }
 
         Ok(())
     }

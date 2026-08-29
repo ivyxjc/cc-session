@@ -5,7 +5,13 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
 
-/// Index all text/thinking content of a session into messages_fts.
+/// Bumped whenever the indexer's coverage changes. `content_indexed_at` is
+/// compared against the file's mtime, which does not move when our own rules
+/// do — so without this, already-indexed sessions would keep their old, thinner
+/// rows forever. A mismatch forces a full rebuild on the next scan.
+pub const FTS_SCHEMA_VERSION: i64 = 2;
+
+/// Index a session's searchable content into messages_fts.
 /// Replaces any existing rows for this session_db_id.
 pub fn index_session_content(
     conn: &Connection,
@@ -96,12 +102,21 @@ fn index_raw_message(
 
         for block in content_arr.unwrap() {
             let bt = block.get("type").and_then(|v| v.as_str()).unwrap_or("");
-            let (text, role): (Option<&str>, &str) = match bt {
-                "text" => (block.get("text").and_then(|v| v.as_str()), msg_type),
+            let (text, role): (Option<String>, &str) = match bt {
+                "text" => (
+                    block.get("text").and_then(|v| v.as_str()).map(str::to_owned),
+                    msg_type,
+                ),
                 "thinking" => (
-                    block.get("thinking").and_then(|v| v.as_str()),
+                    block.get("thinking").and_then(|v| v.as_str()).map(str::to_owned),
                     "thinking",
                 ),
+                // What was actually done: tool name plus the string values of
+                // its input — file paths, shell commands, patterns, replacement
+                // text. Most of what one wants to find again lives here.
+                "tool_use" => (tool_use_text(block), "tool"),
+                // And what came back: command output, errors, file contents.
+                "tool_result" => (tool_result_text(block), "tool_result"),
                 _ => (None, ""),
             };
             if let Some(t) = text {
@@ -114,6 +129,89 @@ fn index_raw_message(
     }
 
     Ok(())
+}
+
+/// Cap per indexed tool block. Session files reach hundreds of MB, largely tool
+/// traffic; indexing it whole would multiply the index size for text nobody
+/// searches. The head of a command or a diff is what identifies it.
+const TOOL_INPUT_MAX: usize = 2_000;
+const TOOL_OUTPUT_MAX: usize = 4_000;
+
+fn truncate_chars(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        s.chars().take(max).collect()
+    }
+}
+
+/// Collect the string leaves of a tool_use input, skipping keys. Values are what
+/// gets searched for ("src/main.rs", "cargo test"); key names are noise.
+fn collect_strings(value: &serde_json::Value, out: &mut Vec<String>, budget: &mut usize) {
+    if *budget == 0 {
+        return;
+    }
+    match value {
+        serde_json::Value::String(s) => {
+            let s = s.trim();
+            if !s.is_empty() {
+                let take = truncate_chars(s, *budget);
+                *budget -= take.chars().count();
+                out.push(take);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_strings(item, out, budget);
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for (_, v) in map {
+                collect_strings(v, out, budget);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn tool_use_text(block: &serde_json::Value) -> Option<String> {
+    let name = block.get("name").and_then(|v| v.as_str()).unwrap_or("");
+    let mut parts: Vec<String> = Vec::new();
+    if !name.is_empty() {
+        parts.push(name.to_string());
+    }
+    let mut budget = TOOL_INPUT_MAX;
+    if let Some(input) = block.get("input") {
+        collect_strings(input, &mut parts, &mut budget);
+    }
+    (!parts.is_empty()).then(|| parts.join(" "))
+}
+
+/// tool_result content is either a plain string or blocks. Only text blocks are
+/// taken — an image block carries base64 that would bloat the index for nothing.
+fn tool_result_text(block: &serde_json::Value) -> Option<String> {
+    let content = block.get("content")?;
+    if let Some(s) = content.as_str() {
+        return Some(truncate_chars(s, TOOL_OUTPUT_MAX));
+    }
+    let arr = content.as_array()?;
+    let mut budget = TOOL_OUTPUT_MAX;
+    let mut parts: Vec<String> = Vec::new();
+    for item in arr {
+        if budget == 0 {
+            break;
+        }
+        if item.get("type").and_then(|v| v.as_str()) == Some("text") {
+            if let Some(t) = item.get("text").and_then(|v| v.as_str()) {
+                let take = truncate_chars(t.trim(), budget);
+                budget -= take.chars().count();
+                if !take.is_empty() {
+                    parts.push(take);
+                }
+            }
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("\n"))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -130,9 +228,39 @@ pub struct ContentSearchResult {
     pub snippet: String,
 }
 
-/// Search message content using FTS5 + BM25 with linear time decay.
-/// `query` is treated as a plain phrase — special FTS chars are escaped.
-/// `provider` of `None` searches every provider.
+/// Characters of context returned around a hit. The trigram tokenizer makes
+/// FTS5's own `snippet()` useless here — its token count is in 3-character
+/// trigrams and caps at 64, so it yields ~30 characters, far too little to
+/// tell whether a hit is the one you wanted. A substr window around the first
+/// occurrence gives real context; the frontend highlights the terms.
+const SNIPPET_CHARS: i64 = 300;
+const SNIPPET_LEAD: i64 = 80;
+
+/// Upper bound on the recency penalty, in bm25 units. bm25 spans roughly 9
+/// units between a strong and a weak match, so an uncapped linear decay (which
+/// reaches +11 over a year) buries an exact match from last year beneath a weak
+/// one from today. Capped, recency only breaks ties between comparable matches.
+const AGE_PENALTY_CAP: f64 = 3.0;
+
+/// Rank bonus for containing the query as written, so that when the terms do
+/// appear together that row still outranks one where they are merely scattered.
+const PHRASE_BONUS: f64 = -2.0;
+
+/// The trigram index cannot match anything shorter than 3 characters, so terms
+/// below that would silently reduce an AND query to zero rows.
+fn indexable_terms(query: &str) -> Vec<&str> {
+    query
+        .split_whitespace()
+        .filter(|t| t.chars().count() >= 3)
+        .collect()
+}
+
+/// Search message content using FTS5 + BM25, recency-weighted.
+///
+/// Terms are ANDed rather than run as one literal phrase: a query like
+/// "terminal pane" should find sessions discussing both, not only the ones
+/// where the words happen to be adjacent. `provider` of `None` searches every
+/// provider.
 pub fn search_messages(
     conn: &Connection,
     query: &str,
@@ -144,20 +272,24 @@ pub fn search_messages(
         return Ok(Vec::new());
     }
 
-    // Trigram tokenizer needs at least 3 chars to use the index
-    if q.chars().count() < 3 {
+    // Nothing the trigram index can match (e.g. a two-character CJK word).
+    let terms = indexable_terms(q);
+    let Some(first_term) = terms.first().copied() else {
         return search_messages_like(conn, q, provider, limit);
-    }
+    };
 
-    // Escape and quote as a phrase so FTS5 doesn't interpret operators (AND/OR/NOT/quotes)
-    let escaped = q.replace('"', "\"\"");
-    let phrase = format!("\"{}\"", escaped);
+    // Quote every term so FTS5 reads none of them as an operator (AND/OR/NOT).
+    let match_expr = terms
+        .iter()
+        .map(|t| format!("\"{}\"", t.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" AND ");
 
     let now_ms = chrono::Utc::now().timestamp_millis();
     // Linear decay: every 30 days adds +1 to bm25 (worse rank, since smaller = better)
     let decay_per_ms: f64 = 1.0 / (30.0 * 86_400_000.0);
 
-    let sql = "
+    let sql = format!("
         SELECT
             f.session_db_id,
             s.session_id,
@@ -167,24 +299,26 @@ pub fn search_messages(
             f.message_uuid,
             f.role,
             f.timestamp_ms,
-            snippet(messages_fts, 0, char(1), char(2), '…', 24) AS snip,
-            bm25(messages_fts) + (?2 - f.timestamp_ms) * ?3 AS weighted
+            substr(f.content, max(1, instr(lower(f.content), lower(?5)) - {lead}), {chars}) AS snip,
+            bm25(messages_fts)
+              + min((?2 - f.timestamp_ms) * ?3, {cap})
+              + (CASE WHEN instr(lower(f.content), lower(?6)) > 0 THEN {bonus} ELSE 0 END) AS weighted
         FROM messages_fts f
         JOIN sessions s ON s.id = f.session_db_id
         JOIN projects p ON p.id = s.project_id
         WHERE messages_fts MATCH ?1
-          AND (?5 IS NULL OR s.provider = ?5)
+          AND (?7 IS NULL OR s.provider = ?7)
         ORDER BY weighted ASC
         LIMIT ?4
-    ";
+    ", lead = SNIPPET_LEAD, chars = SNIPPET_CHARS, cap = AGE_PENALTY_CAP, bonus = PHRASE_BONUS);
 
     let mut stmt = conn
-        .prepare(sql)
+        .prepare(&sql)
         .map_err(|e| format!("FTS query prepare error: {}", e))?;
 
     let rows = stmt
         .query_map(
-            params![phrase, now_ms, decay_per_ms, limit as i64, provider],
+            params![match_expr, now_ms, decay_per_ms, limit as i64, first_term, q, provider],
             |row| {
                 Ok(ContentSearchResult {
                     session_db_id: row.get(0)?,
@@ -213,7 +347,7 @@ fn search_messages_like(
     limit: usize,
 ) -> Result<Vec<ContentSearchResult>, String> {
     let pattern = format!("%{}%", q.replace('%', "\\%").replace('_', "\\_"));
-    let sql = "
+    let sql = format!("
         SELECT
             f.session_db_id,
             s.session_id,
@@ -223,7 +357,7 @@ fn search_messages_like(
             f.message_uuid,
             f.role,
             f.timestamp_ms,
-            substr(f.content, max(1, instr(lower(f.content), lower(?1)) - 24), 80) AS snip
+            substr(f.content, max(1, instr(lower(f.content), lower(?1)) - {lead}), {chars}) AS snip
         FROM messages_fts f
         JOIN sessions s ON s.id = f.session_db_id
         JOIN projects p ON p.id = s.project_id
@@ -231,9 +365,9 @@ fn search_messages_like(
           AND (?4 IS NULL OR s.provider = ?4)
         ORDER BY f.timestamp_ms DESC
         LIMIT ?3
-    ";
+    ", lead = SNIPPET_LEAD, chars = SNIPPET_CHARS);
     let mut stmt = conn
-        .prepare(sql)
+        .prepare(&sql)
         .map_err(|e| format!("LIKE query prepare error: {}", e))?;
     let rows = stmt
         .query_map(params![q, pattern, limit as i64, provider], |row| {
@@ -252,4 +386,129 @@ fn search_messages_like(
         .map_err(|e| format!("LIKE query error: {}", e))?;
 
     Ok(rows.flatten().collect())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE projects (id INTEGER PRIMARY KEY, provider TEXT, display_name TEXT, original_path TEXT);
+             CREATE TABLE sessions (id INTEGER PRIMARY KEY, provider TEXT, session_id TEXT, slug TEXT, project_id INTEGER);
+             CREATE VIRTUAL TABLE messages_fts USING fts5(
+                content, session_db_id UNINDEXED, message_uuid UNINDEXED,
+                role UNINDEXED, timestamp_ms UNINDEXED, tokenize = 'trigram');
+             INSERT INTO projects VALUES (1, 'claude', 'proj', '/tmp/proj');
+             INSERT INTO sessions VALUES (1, 'claude', 's1', 'slug', 1);",
+        )
+        .unwrap();
+        conn
+    }
+
+    fn add(conn: &Connection, uuid: &str, content: &str, ts: i64) {
+        conn.execute(
+            "INSERT INTO messages_fts (content, session_db_id, message_uuid, role, timestamp_ms)
+             VALUES (?1, 1, ?2, 'user', ?3)",
+            params![content, uuid, ts],
+        )
+        .unwrap();
+    }
+
+    fn now() -> i64 {
+        chrono::Utc::now().timestamp_millis()
+    }
+
+    fn uuids(results: &[ContentSearchResult]) -> Vec<&str> {
+        results.iter().map(|r| r.message_uuid.as_str()).collect()
+    }
+
+    #[test]
+    fn multi_word_query_matches_terms_that_are_not_adjacent() {
+        let conn = test_db();
+        add(&conn, "scattered", "the terminal froze while resizing the pane", now());
+        add(&conn, "adjacent", "the terminal pane is broken", now());
+        add(&conn, "neither", "completely unrelated text here", now());
+
+        let hits = search_messages(&conn, "terminal pane", None, 10).unwrap();
+        // A literal-phrase query would only have found "adjacent".
+        assert_eq!(hits.len(), 2);
+        assert!(uuids(&hits).contains(&"scattered"));
+    }
+
+    #[test]
+    fn adjacent_phrase_outranks_scattered_terms() {
+        let conn = test_db();
+        add(&conn, "scattered", "the terminal froze while resizing the pane", now());
+        add(&conn, "adjacent", "the terminal pane is broken", now());
+
+        let hits = search_messages(&conn, "terminal pane", None, 10).unwrap();
+        assert_eq!(hits[0].message_uuid, "adjacent");
+    }
+
+    #[test]
+    fn an_old_exact_match_still_beats_a_recent_weak_one() {
+        let conn = test_db();
+        let year_ago = now() - 365 * 86_400_000;
+        add(&conn, "old-strong", "terminal pane", year_ago);
+        add(&conn, "new-weak", &format!("terminal {}", "filler word ".repeat(200)), now());
+
+        let hits = search_messages(&conn, "terminal pane", None, 10).unwrap();
+        // Uncapped linear decay reached +12 over a year and buried this.
+        assert_eq!(hits[0].message_uuid, "old-strong");
+    }
+
+    #[test]
+    fn queries_below_the_trigram_minimum_fall_back_to_like() {
+        let conn = test_db();
+        add(&conn, "cjk", "重构了终端面板的渲染逻辑", now());
+
+        // "终端" is two characters — the trigram index cannot match it.
+        let hits = search_messages(&conn, "终端", None, 10).unwrap();
+        assert_eq!(uuids(&hits), vec!["cjk"]);
+    }
+
+    #[test]
+    fn snippet_carries_real_context_around_the_hit() {
+        let conn = test_db();
+        let filler = "x".repeat(400);
+        add(&conn, "long", &format!("{} terminal pane {}", filler, filler), now());
+
+        let hits = search_messages(&conn, "terminal", None, 10).unwrap();
+        // FTS5's own snippet() yields ~30 chars under the trigram tokenizer.
+        assert!(hits[0].snippet.chars().count() > 200, "got {:?}", hits[0].snippet);
+        assert!(hits[0].snippet.contains("terminal"));
+    }
+
+    #[test]
+    fn tool_use_indexes_the_name_and_its_string_arguments() {
+        let block = serde_json::json!({
+            "type": "tool_use",
+            "name": "Bash",
+            "input": {"command": "cargo test --workspace", "timeout": 120}
+        });
+        let text = tool_use_text(&block).unwrap();
+        assert!(text.contains("Bash"));
+        assert!(text.contains("cargo test --workspace"));
+        // Numbers and key names are not content anyone searches for.
+        assert!(!text.contains("timeout"));
+    }
+
+    #[test]
+    fn tool_result_skips_image_blocks_and_caps_length() {
+        let block = serde_json::json!({
+            "type": "tool_result",
+            "content": [
+                {"type": "text", "text": "error: cannot find value `foo`"},
+                {"type": "image", "source": {"data": "AAAABBBBCCCC"}}
+            ]
+        });
+        let text = tool_result_text(&block).unwrap();
+        assert!(text.contains("cannot find value"));
+        assert!(!text.contains("AAAABBBB"));
+
+        let huge = serde_json::json!({"type": "tool_result", "content": "y".repeat(50_000)});
+        assert_eq!(tool_result_text(&huge).unwrap().chars().count(), TOOL_OUTPUT_MAX);
+    }
 }
