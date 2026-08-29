@@ -35,9 +35,11 @@ pub fn backup_session_file(
     session_db_id: i64,
     config: &BackupConfig,
 ) -> Result<crate::db::models::Backup, String> {
-    let conn = db.conn();
-
-    let (provider, jsonl_path, session_id, project_encoded): (Provider, String, String, String) = conn.query_row(
+    // Read the row, then release the lock: everything between here and the
+    // "Record in DB" block is file I/O and zstd compression, and holding the
+    // shared connection mutex across it stalls every other command —
+    // backup_all_sessions runs this in a loop.
+    let (provider, jsonl_path, session_id, project_encoded): (Provider, String, String, String) = db.conn().query_row(
         "SELECT s.provider, s.jsonl_path, s.session_id, p.encoded_path
          FROM sessions s JOIN projects p ON s.project_id = p.id
          WHERE s.id = ?1",
@@ -118,6 +120,7 @@ pub fn backup_session_file(
     let backup_path_str = backup_path.to_string_lossy().to_string();
 
     // Record in DB
+    let conn = db.conn();
     conn.execute(
         "INSERT INTO backups (provider, session_id, backup_path, backup_type, original_size, compressed, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
