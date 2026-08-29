@@ -26,11 +26,33 @@ function escapeHtml(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
-/** Convert a snippet with \x01 / \x02 boundary markers (set by SQL `char(1)/char(2)`) into safe HTML */
-function snippetToHtml(snippet: string): string {
-  return escapeHtml(snippet)
-    .replace(//g, '<mark class="bg-yellow-200 dark:bg-yellow-800 px-0.5 rounded">')
-    .replace(//g, "</mark>");
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Split a query into the terms both the index and the highlighter work with. */
+function queryTerms(query: string): string[] {
+  return query.trim().split(/\s+/).filter(Boolean);
+}
+
+/**
+ * Wrap each occurrence of a query term in <mark>. The backend returns a plain
+ * context window rather than FTS5's snippet(): with the trigram tokenizer its
+ * token count is in 3-character units and caps at 64, which yields only ~30
+ * characters of context - too little to recognize a hit.
+ */
+function highlightTerms(text: string, terms: string[]): string {
+  if (terms.length === 0) return escapeHtml(text);
+  const re = new RegExp(`(${terms.map(escapeRegex).join("|")})`, "gi");
+  // split() with one capture group alternates: [text, match, text, match, ...]
+  return text
+    .split(re)
+    .map((part, i) =>
+      i % 2 === 1
+        ? `<mark class="bg-yellow-200 dark:bg-yellow-800 px-0.5 rounded">${escapeHtml(part)}</mark>`
+        : escapeHtml(part),
+    )
+    .join("");
 }
 
 interface ContentGroup {
@@ -98,6 +120,7 @@ export function SearchResults() {
 
     setLoading(true);
     const q = searchQuery.trim().toLowerCase();
+    const terms = queryTerms(q);
     // Typing fast fires overlapping queries; only the newest may render.
     let stale = false;
 
@@ -107,16 +130,24 @@ export function SearchResults() {
     ])
       .then(([allProjects, allSessions]) => {
         if (stale) return;
+        // Subsequence matching stays for project paths, where it usefully
+        // abbreviates ("wa" → "web-app").
         const matchedProjects = allProjects.filter(
           (p) => fuzzyMatch(p.displayName, q) || fuzzyMatch(p.originalPath, q)
         );
 
-        const matchedSessions = allSessions.filter(
-          (s) =>
-            s.sessionId.toLowerCase().startsWith(q) ||
-            (s.slug && fuzzyMatch(s.slug, q)) ||
-            fuzzyMatch(s.projectName, q)
-        );
+        // Sessions match on everything the card actually shows — including the
+        // summary, which is the title the user reads, and the AI tags. Each
+        // term must appear somewhere, so multi-word queries work without the
+        // words having to be adjacent.
+        const matchedSessions = allSessions.filter((s) => {
+          if (s.sessionId.toLowerCase().startsWith(q)) return true;
+          const haystack = [s.summary, s.slug, s.projectName, ...s.aiTags]
+            .filter(Boolean)
+            .join(" ")
+            .toLowerCase();
+          return terms.every((t) => haystack.includes(t));
+        });
 
         setProjects(matchedProjects);
         setSessions(matchedSessions);
@@ -258,7 +289,9 @@ export function SearchResults() {
                       </div>
                       <div
                         className="text-sm text-zinc-700 dark:text-zinc-300 leading-snug whitespace-pre-wrap break-words"
-                        dangerouslySetInnerHTML={{ __html: snippetToHtml(r.snippet) }}
+                        dangerouslySetInnerHTML={{
+                          __html: highlightTerms(r.snippet, queryTerms(contentSearchQuery)),
+                        }}
                       />
                     </button>
                   ))}

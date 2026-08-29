@@ -111,13 +111,19 @@ pub fn to_claude_raw(path: &std::path::Path) -> Result<Vec<serde_json::Value>, S
                 json!({"type": "assistant", "timestamp": timestamp,
                        "message": {"content": [{"type": "thinking", "thinking": summary.join("\n")}]}})
             }
-            CodexResponseItem::FunctionCall { timestamp, call_id, name, .. } => json!({
-                "type": "assistant", "timestamp": timestamp,
-                "message": {"content": [{"type": "tool_use", "id": call_id, "name": name}]}
-            }),
-            CodexResponseItem::FunctionCallOutput { timestamp, call_id, .. } => json!({
+            // Arguments and output are carried through, not dropped: they are
+            // what the content index searches (commands, paths, error output).
+            CodexResponseItem::FunctionCall { timestamp, call_id, name, arguments } => {
+                let input = serde_json::from_str::<serde_json::Value>(&arguments)
+                    .unwrap_or(serde_json::Value::String(arguments));
+                json!({
+                    "type": "assistant", "timestamp": timestamp,
+                    "message": {"content": [{"type": "tool_use", "id": call_id, "name": name, "input": input}]}
+                })
+            }
+            CodexResponseItem::FunctionCallOutput { timestamp, call_id, output } => json!({
                 "type": "user", "timestamp": timestamp,
-                "message": {"content": [{"type": "tool_result", "tool_use_id": call_id}]}
+                "message": {"content": [{"type": "tool_result", "tool_use_id": call_id, "content": output}]}
             }),
             CodexResponseItem::DeveloperMessage { .. } => continue,
         };
